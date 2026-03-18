@@ -2880,4 +2880,141 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.def("settspan",&settspan,"rtklib settspan");
     m.def("settime",&settime,"rtklib settime");
 
+    /* ---- relpos step-by-step context and API ---- */
+
+    /* helper: expose IB() index macro to Python */
+    m.def("IB_index", [](int sat, int freq, const prcopt_t &opt) -> int {
+        int nf = opt.ionoopt == IONOOPT_IFLC ? 1 : opt.nf;
+        int np = opt.dynamics == 0 ? 3 : 9;
+        int ni = opt.ionoopt != IONOOPT_EST ? 0 : MAXSAT;
+        int nt = opt.tropopt < TROPOPT_EST ? 0 : (opt.tropopt < TROPOPT_ESTG ? 2 : 6);
+        int nl = opt.glomodear != 2 ? 0 : NFREQGLO;
+        int na = np + ni + nt + nl;
+        return na + MAXSAT * freq + (sat - 1);
+    }, "Compute state-vector index for phase bias: IB(sat,freq,opt)");
+
+    m.def("NR_index", [](const prcopt_t &opt) -> int {
+        int nf = opt.ionoopt == IONOOPT_IFLC ? 1 : opt.nf;
+        int np = opt.dynamics == 0 ? 3 : 9;
+        int ni = opt.ionoopt != IONOOPT_EST ? 0 : MAXSAT;
+        int nt = opt.tropopt < TROPOPT_EST ? 0 : (opt.tropopt < TROPOPT_ESTG ? 2 : 6);
+        int nl = opt.glomodear != 2 ? 0 : NFREQGLO;
+        return np + ni + nt + nl;
+    }, "Number of real (non-ambiguity) parameters: NR(opt)");
+
+    py::class_<relpos_ctx_t>(m, "relpos_ctx_t")
+        .def(py::init())
+        .def_readonly("nu", &relpos_ctx_t::nu)
+        .def_readonly("nr", &relpos_ctx_t::nr)
+        .def_readonly("ns", &relpos_ctx_t::ns)
+        .def_readonly("nf", &relpos_ctx_t::nf)
+        .def_readonly("ny", &relpos_ctx_t::ny)
+        .def_readonly("nv", &relpos_ctx_t::nv)
+        .def_readonly("niter", &relpos_ctx_t::niter)
+        .def_readonly("stat", &relpos_ctx_t::stat)
+        .def_readonly("dt", &relpos_ctx_t::dt)
+        /* arrays exposed as Arr1D for Python access */
+        .def_property_readonly("xp", [](relpos_ctx_t &c) {
+            return c.xp ? new Arr1D<double>(c.xp, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("Pp", [](relpos_ctx_t &c) {
+            return c.Pp ? new Arr1D<double>(c.Pp, c.rtk->nx * c.rtk->nx) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("xa", [](relpos_ctx_t &c) {
+            return c.xa ? new Arr1D<double>(c.xa, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("bias", [](relpos_ctx_t &c) {
+            return c.bias ? new Arr1D<double>(c.bias, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("v", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.v ? new Arr1D<double>(c.v, ny) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("H", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.H ? new Arr1D<double>(c.H, c.rtk->nx * ny) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("R", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.R ? new Arr1D<double>(c.R, ny * ny) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("y", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.y ? new Arr1D<double>(c.y, c.nf * 2 * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("e", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.e ? new Arr1D<double>(c.e, 3 * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("azel", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.azel ? new Arr1D<double>(c.azel, 2 * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("freq", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.freq ? new Arr1D<double>(c.freq, c.nf * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("rs", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.rs ? new Arr1D<double>(c.rs, 6 * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("dts", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.dts ? new Arr1D<double>(c.dts, 2 * n) : nullptr;
+        }, py::return_value_policy::reference)
+        .def_property_readonly("sat", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.sat, MAXSAT);
+        }, py::return_value_policy::reference)
+        .def_property_readonly("iu", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.iu, MAXSAT);
+        }, py::return_value_policy::reference)
+        .def_property_readonly("ir", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.ir, MAXSAT);
+        }, py::return_value_policy::reference)
+        .def_property_readonly("vflg", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.vflg, MAXOBS * NFREQ * 2 + 1);
+        }, py::return_value_policy::reference);
+
+    m.def("rtkpos_pre_relpos", [](rtk_t &rtk, obsd_t *obs, int n,
+                                   const nav_t &nav) {
+        return rtkpos_pre_relpos(&rtk, obs, n, &nav);
+    }, "Pre-relpos processing: base setup, SPP, time sync");
+
+    m.def("relpos_init", [](relpos_ctx_t &ctx, rtk_t &rtk, obsd_t *obs, int n,
+                            const nav_t &nav) {
+        return relpos_init(&ctx, &rtk, obs, n, &nav);
+    }, "Initialize relpos context for one epoch");
+
+    m.def("relpos_satpos", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_satpos(&ctx, obs);
+    }, "Step 1: compute satellite positions/clocks");
+
+    m.def("relpos_zdres_base", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_zdres_base(&ctx, obs);
+    }, "Step 2: undifferenced residuals for base");
+
+    m.def("relpos_selsat", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_selsat(&ctx, obs);
+    }, "Step 3: select common satellites");
+
+    m.def("relpos_udstate", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        relpos_udstate(&ctx, obs);
+    }, "Step 4: temporal update of states");
+
+    m.def("relpos_float_filter", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_float_filter(&ctx, obs);
+    }, "Step 5: Kalman filter float solution");
+
+    m.def("relpos_ambiguity_resolution", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_ambiguity_resolution(&ctx, obs);
+    }, "Step 6: LAMBDA ambiguity resolution");
+
+    m.def("relpos_save_solution", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        relpos_save_solution(&ctx, obs);
+    }, "Step 7: save solution and update flags");
+
+    m.def("relpos_free", [](relpos_ctx_t &ctx) {
+        relpos_free(&ctx);
+    }, "Free relpos context arrays");
+
 }

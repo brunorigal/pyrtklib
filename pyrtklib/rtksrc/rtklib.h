@@ -1715,6 +1715,54 @@ EXPORT int  rtkopenstat(const char *file, int level);
 EXPORT void rtkclosestat(void);
 EXPORT int  rtkoutstat(rtk_t *rtk, char *buff);
 
+/* internal relpos step functions (exposed for pyrtklib) ---------------------*/
+double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
+               rtk_t *rtk, double *y);
+int selsat(const obsd_t *obs, double *azel, int nu, int nr,
+           const prcopt_t *opt, int *sat, int *iu, int *ir);
+void udstate(rtk_t *rtk, const obsd_t *obs, const int *sat,
+             const int *iu, const int *ir, int ns, const nav_t *nav);
+int zdres(int base, const obsd_t *obs, int n, const double *rs,
+          const double *dts, const double *var, const int *svh,
+          const nav_t *nav, const double *rr, const prcopt_t *opt,
+          int index, double *y, double *e, double *azel, double *freq);
+int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
+          const double *P, const int *sat, double *y, double *e,
+          double *azel, double *freq, const int *iu, const int *ir,
+          int ns, double *v, double *H, double *R, int *vflg);
+int ddidx(rtk_t *rtk, int *ix);
+void restamb(rtk_t *rtk, const double *bias, int nb, double *xa);
+void holdamb(rtk_t *rtk, const double *xa);
+int resamb_LAMBDA(rtk_t *rtk, double *bias, double *xa);
+int valpos(rtk_t *rtk, const double *v, const double *R, const int *vflg,
+           int nv, double thres);
+
+/* relpos step-by-step context -----------------------------------------------*/
+typedef struct {
+    rtk_t *rtk;
+    const nav_t *nav;
+    int nu, nr, ns, nf, ny, nv, niter, stat;
+    double dt;
+    double *rs, *dts, *var, *y, *e, *azel, *freq;
+    double *v, *H, *R, *xp, *Pp, *xa, *bias;
+    int sat[MAXSAT], iu[MAXSAT], ir[MAXSAT];
+    int vflg[MAXOBS*NFREQ*2+1];
+    int svh[MAXOBS*2];
+} relpos_ctx_t;
+
+/* relpos step-by-step API */
+int rtkpos_pre_relpos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav);
+int relpos_init(relpos_ctx_t *ctx, rtk_t *rtk, const obsd_t *obs, int n,
+                const nav_t *nav);
+int relpos_satpos(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_zdres_base(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_selsat(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_udstate(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_float_filter(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_ambiguity_resolution(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_save_solution(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_free(relpos_ctx_t *ctx);
+
 /* precise point positioning -------------------------------------------------*/
 EXPORT void pppos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav);
 EXPORT int pppnx(const prcopt_t *opt);

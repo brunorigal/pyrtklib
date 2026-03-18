@@ -415,7 +415,7 @@ static void initx(rtk_t *rtk, double xi, double var, int i)
     }
 }
 /* select common satellites between rover and reference station --------------*/
-static int selsat(const obsd_t *obs, double *azel, int nu, int nr,
+int selsat(const obsd_t *obs, double *azel, int nu, int nr,
                   const prcopt_t *opt, int *sat, int *iu, int *ir)
 {
     int i,j,k=0;
@@ -804,7 +804,7 @@ static void udbias(rtk_t *rtk, double tt, const obsd_t *obs, const int *sat,
     }
 }
 /* temporal update of states --------------------------------------------------*/
-static void udstate(rtk_t *rtk, const obsd_t *obs, const int *sat,
+void udstate(rtk_t *rtk, const obsd_t *obs, const int *sat,
                     const int *iu, const int *ir, int ns, const nav_t *nav)
 {
     double tt=rtk->tt,bl,dr[3];
@@ -875,7 +875,7 @@ static void zdres_sat(int base, double r, const obsd_t *obs, const nav_t *nav,
     }
 }
 /* UD (undifferenced) phase/code residuals -----------------------------------*/
-static int zdres(int base, const obsd_t *obs, int n, const double *rs,
+int zdres(int base, const obsd_t *obs, int n, const double *rs,
                  const double *dts, const double *var, const int *svh,
                  const nav_t *nav, const double *rr, const prcopt_t *opt,
                  int index, double *y, double *e, double *azel, double *freq)
@@ -1039,7 +1039,7 @@ static int test_sys(int sys, int m)
     return 0;
 }
 /* DD (double-differenced) phase/code residuals ------------------------------*/
-static int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
+int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
                  const double *P, const int *sat, double *y, double *e,
                  double *azel, double *freq, const int *iu, const int *ir,
                  int ns, double *v, double *H, double *R, int *vflg)
@@ -1194,8 +1194,8 @@ static int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
     return nv;
 }
 /* time-interpolation of residuals (for post-processing) ---------------------*/
-static double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
-                      rtk_t *rtk, double *y)
+double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
+               rtk_t *rtk, double *y)
 {
     static obsd_t obsb[MAXOBS];
     static double yb[MAXOBS*NFREQ*2],rs[MAXOBS*6],dts[MAXOBS*2],var[MAXOBS];
@@ -1229,7 +1229,7 @@ static double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
     return fabs(ttb)>fabs(tt)?ttb:tt;
 }
 /* index for SD to DD transformation matrix D --------------------------------*/
-static int ddidx(rtk_t *rtk, int *ix)
+int ddidx(rtk_t *rtk, int *ix)
 {
     int i,j,k,m,f,nb=0,na=rtk->na,nf=NF(&rtk->opt),nofix;
     
@@ -1276,7 +1276,7 @@ static int ddidx(rtk_t *rtk, int *ix)
     return nb;
 }
 /* restore SD (single-differenced) ambiguity ---------------------------------*/
-static void restamb(rtk_t *rtk, const double *bias, int nb, double *xa)
+void restamb(rtk_t *rtk, const double *bias, int nb, double *xa)
 {
     int i,n,m,f,index[MAXSAT],nv=0,nf=NF(&rtk->opt);
     
@@ -1303,7 +1303,7 @@ static void restamb(rtk_t *rtk, const double *bias, int nb, double *xa)
     }
 }
 /* hold integer ambiguity ----------------------------------------------------*/
-static void holdamb(rtk_t *rtk, const double *xa)
+void holdamb(rtk_t *rtk, const double *xa)
 {
     double *v,*H,*R;
     int i,n,m,f,info,index[MAXSAT],nb=rtk->nx-rtk->na,nv=0,nf=NF(&rtk->opt);
@@ -1344,7 +1344,7 @@ static void holdamb(rtk_t *rtk, const double *xa)
     free(v); free(H);
 }
 /* resolve integer ambiguity by LAMBDA ---------------------------------------*/
-static int resamb_LAMBDA(rtk_t *rtk, double *bias, double *xa)
+int resamb_LAMBDA(rtk_t *rtk, double *bias, double *xa)
 {
     prcopt_t *opt=&rtk->opt;
     int i,j,nb,info,nx=rtk->nx,na=rtk->na;
@@ -1434,7 +1434,7 @@ static int resamb_LAMBDA(rtk_t *rtk, double *bias, double *xa)
     return nb; /* number of ambiguities */
 }
 /* validation of solution ----------------------------------------------------*/
-static int valpos(rtk_t *rtk, const double *v, const double *R, const int *vflg,
+int valpos(rtk_t *rtk, const double *v, const double *R, const int *vflg,
                   int nv, double thres)
 {
     double fact=thres*thres;
