@@ -390,6 +390,201 @@ void relpos_save_solution(relpos_ctx_t *ctx, const obsd_t *obs)
     if (stat != SOLQ_NONE) rtk->sol.stat = stat;
 }
 
+/* bulk per-satellite data extraction ----------------------------------------
+*  Extracts per-satellite data for all common satellites in one C call.
+*  Computes geometric range, tropospheric/ionospheric corrections, and
+*  base station geometry for all satellites, avoiding Python-level loops.
+*
+*  Output arrays must be pre-allocated by the caller to at least ns elements
+*  (or ns*nf / ns*3 / ns*6 depending on the field).
+*
+*  flags bitmask controls which fields are computed:
+*    bit 0 (1)  : VRS corrections (geodist, tropo, iono, sagnac)
+*    bit 1 (2)  : base station geometry (base geodist, base azel)
+*    bit 2 (4)  : per-frequency ssat fields (fix, lock, slip, snr, resc, resp)
+*    bit 3 (8)  : float ambiguities + wavelengths
+*  All bits set (0xF) = extract everything.
+*---------------------------------------------------------------------------*/
+void relpos_extract_sat_data(
+    const relpos_ctx_t *ctx,
+    const double *rover_ecef,    /* rover ECEF position [3] */
+    const double *base_ecef,     /* base station ECEF [3] */
+    int flags,                   /* bitmask controlling which fields to compute */
+    /* outputs: per-satellite arrays (all ns-sized or ns*nf / ns*3 etc.) */
+    double *out_el_deg,          /* [ns] elevation (deg) */
+    double *out_az_deg,          /* [ns] azimuth (deg) */
+    double *out_sat_pos,         /* [ns*3] satellite ECEF positions */
+    double *out_sat_vel,         /* [ns*3] satellite ECEF velocities */
+    double *out_sat_clk,         /* [ns] satellite clock bias (m) */
+    double *out_sat_clk_drift,   /* [ns] satellite clock drift (m/s) */
+    double *out_los,             /* [ns*3] line-of-sight unit vectors */
+    double *out_geom_range,      /* [ns] geometric range (m) (flag bit 0) */
+    double *out_sagnac,          /* [ns] Sagnac correction (m) (flag bit 0) */
+    double *out_tropo,           /* [ns] tropospheric delay (m) (flag bit 0) */
+    double *out_iono,            /* [ns] ionospheric delay L1 (m) (flag bit 0) */
+    double *out_phw,             /* [ns] phase wind-up (cycles) */
+    double *out_base_geom_range, /* [ns] base geometric range (m) (flag bit 1) */
+    double *out_base_el_deg,     /* [ns] base elevation (deg) (flag bit 1) */
+    double *out_base_az_deg,     /* [ns] base azimuth (deg) (flag bit 1) */
+    double *out_float_amb,       /* [ns*nf] float ambiguities (flag bit 3) */
+    double *out_wl,              /* [ns*nf] wavelengths (m) (flag bit 3) */
+    double *out_resc,            /* [ns*nf] DD phase residuals (flag bit 2) */
+    double *out_resp,            /* [ns*nf] DD code residuals (flag bit 2) */
+    double *out_fix,             /* [ns*nf] fix flags (flag bit 2) */
+    double *out_lock,            /* [ns*nf] lock counts (flag bit 2) */
+    double *out_slip,            /* [ns*nf] slip flags (flag bit 2) */
+    double *out_snr              /* [ns*nf] SNR (dBHz) (flag bit 2) */
+)
+{
+    rtk_t *rtk = ctx->rtk;
+    prcopt_t *opt = &rtk->opt;
+    int j, f, sat_no, iu_j, ir_j, nx = rtk->nx;
+    int ns = ctx->ns, nf = ctx->nf;
+    double rover_pos[3], base_pos[3];  /* geodetic (lat,lon,h) */
+    double scratch_sv[6], scratch_e[3], azel_buf[2];
+    double trp[1], trp_var[1], ion[1], ion_var[1];
+    int do_vrs   = (flags & 1);
+    int do_base  = (flags & 2);
+    int do_ssat  = (flags & 4);
+    int do_amb   = (flags & 8);
+
+    /* pre-compute geodetic positions for iono/tropo models */
+    if (do_vrs) {
+        ecef2pos(rover_ecef, rover_pos);
+    }
+    if (do_base) {
+        ecef2pos(base_ecef, base_pos);
+    }
+
+    for (j = 0; j < ns; j++) {
+        sat_no = ctx->sat[j];
+        if (sat_no <= 0) continue;
+
+        iu_j = ctx->iu[j];
+        ir_j = ctx->ir[j];
+
+        /* elevation and azimuth from ssat (already set by zdres) */
+        out_el_deg[j] = rtk->ssat[sat_no - 1].azel[1] * R2D;
+        out_az_deg[j] = rtk->ssat[sat_no - 1].azel[0] * R2D;
+
+        /* satellite position/velocity from ctx->rs */
+        {
+            int off6 = 6 * iu_j;
+            out_sat_pos[j*3+0] = ctx->rs[off6+0];
+            out_sat_pos[j*3+1] = ctx->rs[off6+1];
+            out_sat_pos[j*3+2] = ctx->rs[off6+2];
+            out_sat_vel[j*3+0] = ctx->rs[off6+3];
+            out_sat_vel[j*3+1] = ctx->rs[off6+4];
+            out_sat_vel[j*3+2] = ctx->rs[off6+5];
+        }
+
+        /* satellite clock bias/drift */
+        {
+            int off2 = 2 * iu_j;
+            out_sat_clk[j]       = -CLIGHT * ctx->dts[off2+0];
+            out_sat_clk_drift[j] = -CLIGHT * ctx->dts[off2+1];
+        }
+
+        /* LOS unit vector from ctx->e */
+        {
+            int off3 = 3 * iu_j;
+            out_los[j*3+0] = ctx->e[off3+0];
+            out_los[j*3+1] = ctx->e[off3+1];
+            out_los[j*3+2] = ctx->e[off3+2];
+        }
+
+        /* phase wind-up */
+        out_phw[j] = rtk->ssat[sat_no - 1].phw;
+
+        /* VRS corrections: geodist, sagnac, tropo, iono */
+        if (do_vrs) {
+            int off6 = 6 * iu_j;
+            for (f = 0; f < 6; f++) scratch_sv[f] = ctx->rs[off6+f];
+
+            out_geom_range[j] = geodist(scratch_sv, rover_ecef, scratch_e);
+
+            out_sagnac[j] = OMGE * (scratch_sv[0] * rover_ecef[1]
+                                   - scratch_sv[1] * rover_ecef[0]) / CLIGHT;
+
+            azel_buf[0] = rtk->ssat[sat_no - 1].azel[0];
+            azel_buf[1] = rtk->ssat[sat_no - 1].azel[1];
+
+            trp[0] = 0.0;
+            tropcorr(rtk->sol.time, ctx->nav, rover_pos, azel_buf,
+                     opt->tropopt, trp, trp_var);
+            out_tropo[j] = trp[0];
+
+            ion[0] = 0.0;
+            ionocorr(rtk->sol.time, ctx->nav, sat_no, rover_pos, azel_buf,
+                     opt->ionoopt, ion, ion_var);
+            out_iono[j] = ion[0];
+        }
+
+        /* base station geometry */
+        if (do_base) {
+            int boff = 6 * ir_j;
+            double base_scratch_e[3], base_azel[2];
+            for (f = 0; f < 6; f++) scratch_sv[f] = ctx->rs[boff+f];
+
+            out_base_geom_range[j] = geodist(scratch_sv, base_ecef, base_scratch_e);
+            satazel(base_pos, base_scratch_e, base_azel);
+            out_base_el_deg[j] = base_azel[1] * R2D;
+            out_base_az_deg[j] = base_azel[0] * R2D;
+        }
+
+        /* per-frequency ssat fields */
+        if (do_ssat) {
+            ssat_t *ss = &rtk->ssat[sat_no - 1];
+            for (f = 0; f < nf; f++) {
+                out_resc[j*nf+f] = ss->resc[f];
+                out_resp[j*nf+f] = ss->resp[f];
+                out_fix[j*nf+f]  = (double)ss->fix[f];
+                out_lock[j*nf+f] = (double)ss->lock[f];
+                out_slip[j*nf+f] = (double)ss->slip[f];
+                out_snr[j*nf+f]  = (double)ss->snr[f] * SNR_UNIT;
+            }
+        }
+
+        /* float ambiguities and wavelengths */
+        if (do_amb) {
+            for (f = 0; f < nf; f++) {
+                int amb_idx = IB(sat_no, f, opt);
+                out_float_amb[j*nf+f] = (amb_idx < nx) ? rtk->x[amb_idx] : 0.0/0.0;
+
+                {
+                    double freq_hz = ctx->freq[f + nf * iu_j];
+                    out_wl[j*nf+f] = (freq_hz > 0.0) ? CLIGHT / freq_hz : 0.0/0.0;
+                }
+            }
+        }
+    }
+}
+
+/* bulk extraction of fixed-solution ambiguities ----------------------------*/
+void relpos_extract_fixed_amb(
+    const relpos_ctx_t *ctx,
+    double *out_fixed_amb,  /* [ns*nf] fixed ambiguities from ctx->xa */
+    double *out_fix_flags   /* [ns*nf] updated fix flags after AR */
+)
+{
+    rtk_t *rtk = ctx->rtk;
+    prcopt_t *opt = &rtk->opt;
+    int j, f, sat_no, nx = rtk->nx;
+    int ns = ctx->ns, nf = ctx->nf;
+
+    if (!ctx->xa) return;
+
+    for (j = 0; j < ns; j++) {
+        sat_no = ctx->sat[j];
+        if (sat_no <= 0) continue;
+        for (f = 0; f < nf; f++) {
+            int amb_idx = IB(sat_no, f, opt);
+            out_fixed_amb[j*nf+f] = (amb_idx < nx) ? ctx->xa[amb_idx] : 0.0/0.0;
+            out_fix_flags[j*nf+f] = (double)rtk->ssat[sat_no - 1].fix[f];
+        }
+    }
+}
+
 /* free relpos context -------------------------------------------------------*/
 void relpos_free(relpos_ctx_t *ctx)
 {

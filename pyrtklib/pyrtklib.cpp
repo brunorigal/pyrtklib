@@ -3017,4 +3017,159 @@ PYBIND11_MODULE(pyrtklib, m) {
         relpos_free(&ctx);
     }, "Free relpos context arrays");
 
+    /* extract diagonal of a square matrix stored as flat Arr1D */
+    m.def("matrix_diagonal", [](Arr1D<double> &mat, int n) {
+        auto result = py::array_t<double>(n);
+        double *dst = static_cast<double*>(result.mutable_data());
+        double *src = mat.src;
+        for (int i = 0; i < n; i++) {
+            dst[i] = src[i + i * n];
+        }
+        return result;
+    }, py::arg("mat"), py::arg("n"),
+       "Extract diagonal of n×n matrix stored as flat array");
+
+    /* bulk per-satellite extraction: returns dict of numpy arrays */
+    m.def("relpos_extract_sat_data",
+        [](relpos_ctx_t &ctx,
+           py::array_t<double> rover_ecef,
+           py::array_t<double> base_ecef,
+           int flags) -> py::dict
+    {
+        int ns = ctx.ns;
+        int nf = ctx.nf;
+        if (ns <= 0) return py::dict();
+
+        const double *rov = static_cast<const double*>(rover_ecef.data());
+        const double *bas = static_cast<const double*>(base_ecef.data());
+
+        /* allocate output arrays */
+        auto el   = py::array_t<double>(ns);
+        auto az   = py::array_t<double>(ns);
+        auto spos = py::array_t<double>(ns * 3);
+        auto svel = py::array_t<double>(ns * 3);
+        auto sclk = py::array_t<double>(ns);
+        auto scdr = py::array_t<double>(ns);
+        auto los  = py::array_t<double>(ns * 3);
+        auto gr   = py::array_t<double>(ns);
+        auto sag  = py::array_t<double>(ns);
+        auto trp  = py::array_t<double>(ns);
+        auto ion  = py::array_t<double>(ns);
+        auto phw  = py::array_t<double>(ns);
+        auto bgr  = py::array_t<double>(ns);
+        auto bel  = py::array_t<double>(ns);
+        auto baz  = py::array_t<double>(ns);
+        auto famb = py::array_t<double>(ns * nf);
+        auto wl   = py::array_t<double>(ns * nf);
+        auto resc = py::array_t<double>(ns * nf);
+        auto resp = py::array_t<double>(ns * nf);
+        auto fix  = py::array_t<double>(ns * nf);
+        auto lock = py::array_t<double>(ns * nf);
+        auto slip = py::array_t<double>(ns * nf);
+        auto snr  = py::array_t<double>(ns * nf);
+
+        relpos_extract_sat_data(&ctx, rov, bas, flags,
+            static_cast<double*>(el.mutable_data()),
+            static_cast<double*>(az.mutable_data()),
+            static_cast<double*>(spos.mutable_data()),
+            static_cast<double*>(svel.mutable_data()),
+            static_cast<double*>(sclk.mutable_data()),
+            static_cast<double*>(scdr.mutable_data()),
+            static_cast<double*>(los.mutable_data()),
+            static_cast<double*>(gr.mutable_data()),
+            static_cast<double*>(sag.mutable_data()),
+            static_cast<double*>(trp.mutable_data()),
+            static_cast<double*>(ion.mutable_data()),
+            static_cast<double*>(phw.mutable_data()),
+            static_cast<double*>(bgr.mutable_data()),
+            static_cast<double*>(bel.mutable_data()),
+            static_cast<double*>(baz.mutable_data()),
+            static_cast<double*>(famb.mutable_data()),
+            static_cast<double*>(wl.mutable_data()),
+            static_cast<double*>(resc.mutable_data()),
+            static_cast<double*>(resp.mutable_data()),
+            static_cast<double*>(fix.mutable_data()),
+            static_cast<double*>(lock.mutable_data()),
+            static_cast<double*>(slip.mutable_data()),
+            static_cast<double*>(snr.mutable_data()));
+
+        /* also extract sat_no and sat_id strings for Python indexing */
+        py::list sat_ids(ns);
+        py::array_t<int> sat_nos(ns);
+        int *sat_nos_ptr = static_cast<int*>(sat_nos.mutable_data());
+        for (int j = 0; j < ns; j++) {
+            char id_buf[8] = {0};
+            sat_nos_ptr[j] = ctx.sat[j];
+            satno2id(ctx.sat[j], id_buf);
+            sat_ids[j] = py::str(id_buf);
+        }
+
+        /* reshape 2D arrays using numpy reshape */
+        py::object np_reshape = py::module_::import("numpy").attr("reshape");
+        auto spos2 = np_reshape(spos, py::make_tuple(ns, 3));
+        auto svel2 = np_reshape(svel, py::make_tuple(ns, 3));
+        auto los2  = np_reshape(los,  py::make_tuple(ns, 3));
+        auto famb2 = np_reshape(famb, py::make_tuple(ns, nf));
+        auto wl2   = np_reshape(wl,   py::make_tuple(ns, nf));
+        auto resc2 = np_reshape(resc, py::make_tuple(ns, nf));
+        auto resp2 = np_reshape(resp, py::make_tuple(ns, nf));
+        auto fix2  = np_reshape(fix,  py::make_tuple(ns, nf));
+        auto lock2 = np_reshape(lock, py::make_tuple(ns, nf));
+        auto slip2 = np_reshape(slip, py::make_tuple(ns, nf));
+        auto snr2  = np_reshape(snr,  py::make_tuple(ns, nf));
+
+        py::dict result;
+        result["sat_ids"]       = sat_ids;
+        result["sat_nos"]       = sat_nos;
+        result["el_deg"]        = el;
+        result["az_deg"]        = az;
+        result["sat_pos"]       = spos2;
+        result["sat_vel"]       = svel2;
+        result["sat_clk"]       = sclk;
+        result["sat_clk_drift"] = scdr;
+        result["los"]           = los2;
+        result["geom_range"]    = gr;
+        result["sagnac"]        = sag;
+        result["tropo"]         = trp;
+        result["iono"]          = ion;
+        result["phw"]           = phw;
+        result["base_geom_range"]= bgr;
+        result["base_el_deg"]   = bel;
+        result["base_az_deg"]   = baz;
+        result["float_amb"]     = famb2;
+        result["wl"]            = wl2;
+        result["resc"]          = resc2;
+        result["resp"]          = resp2;
+        result["fix"]           = fix2;
+        result["lock"]          = lock2;
+        result["slip"]          = slip2;
+        result["snr"]           = snr2;
+        return result;
+    }, py::arg("ctx"), py::arg("rover_ecef"), py::arg("base_ecef"),
+       py::arg("flags") = 0xF,
+       "Bulk extract per-satellite data into numpy arrays");
+
+    /* bulk extraction of fixed ambiguities after AR */
+    m.def("relpos_extract_fixed_amb",
+        [](relpos_ctx_t &ctx) -> py::dict
+    {
+        int ns = ctx.ns;
+        int nf = ctx.nf;
+        if (ns <= 0 || !ctx.xa) return py::dict();
+
+        auto famb = py::array_t<double>(ns * nf);
+        auto fix  = py::array_t<double>(ns * nf);
+
+        relpos_extract_fixed_amb(&ctx,
+            static_cast<double*>(famb.mutable_data()),
+            static_cast<double*>(fix.mutable_data()));
+
+        py::object np_reshape = py::module_::import("numpy").attr("reshape");
+
+        py::dict result;
+        result["fixed_amb"]  = np_reshape(famb, py::make_tuple(ns, nf));
+        result["fix_flags"]  = np_reshape(fix,  py::make_tuple(ns, nf));
+        return result;
+    }, "Bulk extract fixed ambiguities after LAMBDA");
+
 }

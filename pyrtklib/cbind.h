@@ -4,6 +4,7 @@
 #include <memory>
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 
 namespace py = pybind11;
 #define BINDARR1D(Type) pybind11::class_<Arr1D<Type>>(m,"Arr1D"#Type)\
@@ -156,7 +157,7 @@ void bindArr1D(py::module_& m, const std::string& typeName) {
                 throw std::runtime_error("Cannot export buffer: array length unknown (len=-1). "
                                          "Use to_numpy(length) instead.");
             }
-            fprintf(stderr, "def_buffer: src=%p len=%d\n", (void*)arr.src, arr.len);
+            /* debug: fprintf(stderr, "def_buffer: src=%p len=%d\n", (void*)arr.src, arr.len); */
             return py::buffer_info(
                 arr.src,
                 sizeof(Type),
@@ -167,29 +168,20 @@ void bindArr1D(py::module_& m, const std::string& typeName) {
             );
         });
         cls.def("to_numpy", [](Arr1D<Type> &arr, int length) {
-            auto result = py::array_t<Type>(length);
-            Type* dst = static_cast<Type*>(result.mutable_data());
-            Type* s = arr.src;
-            fprintf(stderr, "to_numpy(len): src=%p len=%d\n", (void*)s, length);
-            for (int i = 0; i < length; i++) {
-                dst[i] = s[i];
-            }
-            return result;
+            /* Workaround: create py::array_t directly from raw memory via capsule */
+            py::capsule free_when_done([](){});  /* no-op deleter; we copy below */
+            py::array_t<Type> view({length}, {sizeof(Type)}, arr.src, free_when_done);
+            /* Return a copy so the result owns its memory */
+            return py::array_t<Type>(view.request());
         }, py::arg("length"), "Copy elements into a numpy array with explicit length");
         cls.def("to_numpy", [](Arr1D<Type> &arr) {
             if (arr.len < 0) {
                 throw std::runtime_error("Cannot export: array length unknown (len=-1). "
                                          "Pass explicit length.");
             }
-            auto result = py::array_t<Type>(arr.len);
-            Type* dst = static_cast<Type*>(result.mutable_data());
-            Type* s = arr.src;
-            fprintf(stderr, "to_numpy(): src=%p len=%d s[0]=%f s[1]=%f s[2]=%f\n", (void*)s, arr.len, (double)s[0], (double)s[1], (double)s[2]);
-            for (int i = 0; i < arr.len; i++) {
-                dst[i] = s[i];
-            }
-            fprintf(stderr, "to_numpy(): dst=%p dst[0]=%f dst[1]=%f dst[2]=%f\n", (void*)dst, (double)dst[0], (double)dst[1], (double)dst[2]);
-            return result;
+            py::capsule free_when_done([](){});
+            py::array_t<Type> view({arr.len}, {sizeof(Type)}, arr.src, free_when_done);
+            return py::array_t<Type>(view.request());
         }, "Copy elements into a numpy array");
 
         if constexpr (std::is_same<Type, char>::value) {

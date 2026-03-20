@@ -1762,6 +1762,19 @@ int relpos_float_filter(relpos_ctx_t *ctx, const obsd_t *obs);
 int relpos_ambiguity_resolution(relpos_ctx_t *ctx, const obsd_t *obs);
 void relpos_save_solution(relpos_ctx_t *ctx, const obsd_t *obs);
 void relpos_free(relpos_ctx_t *ctx);
+void relpos_extract_sat_data(const relpos_ctx_t *ctx,
+    const double *rover_ecef, const double *base_ecef, int flags,
+    double *out_el_deg, double *out_az_deg,
+    double *out_sat_pos, double *out_sat_vel,
+    double *out_sat_clk, double *out_sat_clk_drift,
+    double *out_los, double *out_geom_range, double *out_sagnac,
+    double *out_tropo, double *out_iono, double *out_phw,
+    double *out_base_geom_range, double *out_base_el_deg, double *out_base_az_deg,
+    double *out_float_amb, double *out_wl,
+    double *out_resc, double *out_resp, double *out_fix, double *out_lock,
+    double *out_slip, double *out_snr);
+void relpos_extract_fixed_amb(const relpos_ctx_t *ctx,
+    double *out_fixed_amb, double *out_fix_flags);
 
 /* precise point positioning -------------------------------------------------*/
 EXPORT void pppos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav);
