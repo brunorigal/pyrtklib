@@ -2916,64 +2916,64 @@ PYBIND11_MODULE(pyrtklib, m) {
         /* arrays exposed as Arr1D for Python access */
         .def_property_readonly("xp", [](relpos_ctx_t &c) {
             return c.xp ? new Arr1D<double>(c.xp, c.rtk->nx) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("Pp", [](relpos_ctx_t &c) {
             return c.Pp ? new Arr1D<double>(c.Pp, c.rtk->nx * c.rtk->nx) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("xa", [](relpos_ctx_t &c) {
             return c.xa ? new Arr1D<double>(c.xa, c.rtk->nx) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("bias", [](relpos_ctx_t &c) {
             return c.bias ? new Arr1D<double>(c.bias, c.rtk->nx) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("v", [](relpos_ctx_t &c) {
             int ny = c.ny > 0 ? c.ny : 1;
             return c.v ? new Arr1D<double>(c.v, ny) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("H", [](relpos_ctx_t &c) {
             int ny = c.ny > 0 ? c.ny : 1;
             return c.H ? new Arr1D<double>(c.H, c.rtk->nx * ny) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("R", [](relpos_ctx_t &c) {
             int ny = c.ny > 0 ? c.ny : 1;
             return c.R ? new Arr1D<double>(c.R, ny * ny) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("y", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.y ? new Arr1D<double>(c.y, c.nf * 2 * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("e", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.e ? new Arr1D<double>(c.e, 3 * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("azel", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.azel ? new Arr1D<double>(c.azel, 2 * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("freq", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.freq ? new Arr1D<double>(c.freq, c.nf * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("rs", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.rs ? new Arr1D<double>(c.rs, 6 * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("dts", [](relpos_ctx_t &c) {
             int n = c.nu + c.nr;
             return c.dts ? new Arr1D<double>(c.dts, 2 * n) : nullptr;
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("sat", [](relpos_ctx_t &c) {
             return new Arr1D<int>(c.sat, MAXSAT);
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("iu", [](relpos_ctx_t &c) {
             return new Arr1D<int>(c.iu, MAXSAT);
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("ir", [](relpos_ctx_t &c) {
             return new Arr1D<int>(c.ir, MAXSAT);
-        }, py::return_value_policy::reference)
+        }, py::return_value_policy::take_ownership)
         .def_property_readonly("vflg", [](relpos_ctx_t &c) {
             return new Arr1D<int>(c.vflg, MAXOBS * NFREQ * 2 + 1);
-        }, py::return_value_policy::reference);
+        }, py::return_value_policy::take_ownership);
 
     m.def("rtkpos_pre_relpos", [](rtk_t &rtk, obsd_t *obs, int n,
                                    const nav_t &nav) {

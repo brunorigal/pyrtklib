@@ -1716,8 +1716,6 @@ EXPORT void rtkclosestat(void);
 EXPORT int  rtkoutstat(rtk_t *rtk, char *buff);
 
 /* internal relpos step functions (exposed for pyrtklib) ---------------------*/
-double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
-               rtk_t *rtk, double *y);
 int selsat(const obsd_t *obs, double *azel, int nu, int nr,
            const prcopt_t *opt, int *sat, int *iu, int *ir);
 void udstate(rtk_t *rtk, const obsd_t *obs, const int *sat,

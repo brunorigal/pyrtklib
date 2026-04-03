@@ -1194,8 +1194,8 @@ int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
     return nv;
 }
 /* time-interpolation of residuals (for post-processing) ---------------------*/
-double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
-               rtk_t *rtk, double *y)
+static double intpres(gtime_t time, const obsd_t *obs, int n, const nav_t *nav,
+                      rtk_t *rtk, double *y)
 {
     static obsd_t obsb[MAXOBS];
     static double yb[MAXOBS*NFREQ*2],rs[MAXOBS*6],dts[MAXOBS*2],var[MAXOBS];

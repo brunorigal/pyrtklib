@@ -22,6 +22,44 @@
 
 #define TTOL_MOVEB  (1.0+2*DTTOL)
 
+/* time-interpolation of residuals (local copy for step-by-step API) ---------
+*  This is a separate copy from the one in rtkpos.c. Each copy owns its own
+*  static local buffers so the original relpos() path and the step-by-step
+*  path do not corrupt each other's interpolation state.
+*---------------------------------------------------------------------------*/
+static double intpres_step(gtime_t time, const obsd_t *obs, int n,
+                           const nav_t *nav, rtk_t *rtk, double *y)
+{
+    static obsd_t obsb[MAXOBS];
+    static double yb[MAXOBS*NFREQ*2],rs[MAXOBS*6],dts[MAXOBS*2],var[MAXOBS];
+    static double e[MAXOBS*3],azel[MAXOBS*2],freq[MAXOBS*NFREQ];
+    static int nb=0,svh[MAXOBS*2];
+    prcopt_t *opt=&rtk->opt;
+    double tt=timediff(time,obs[0].time),ttb,*p,*q;
+    int i,j,k,nf=NF(opt);
+
+    if (nb==0||fabs(tt)<DTTOL) {
+        nb=n; for (i=0;i<n;i++) obsb[i]=obs[i];
+        return tt;
+    }
+    ttb=timediff(time,obsb[0].time);
+    if (fabs(ttb)>opt->maxtdiff*2.0||ttb==tt) return tt;
+
+    satposs(time,obsb,nb,nav,opt->sateph,rs,dts,var,svh);
+
+    if (!zdres(1,obsb,nb,rs,dts,var,svh,nav,rtk->rb,opt,1,yb,e,azel,freq)) {
+        return tt;
+    }
+    for (i=0;i<n;i++) {
+        for (j=0;j<nb;j++) if (obsb[j].sat==obs[i].sat) break;
+        if (j>=nb) continue;
+        for (k=0,p=y+i*nf*2,q=yb+j*nf*2;k<nf*2;k++,p++,q++) {
+            if (*p==0.0||*q==0.0) *p=0.0; else *p=(ttb*(*p)-tt*(*q))/(ttb-tt);
+        }
+    }
+    return fabs(ttb)>fabs(tt)?ttb:tt;
+}
+
 /* pre-relpos processing (from rtkpos): base setup, SPP, time sync ----------
 *  Does everything rtkpos() does before calling relpos().
 *  Returns: 1 on success (ready for relpos steps), 0 on failure.
@@ -166,8 +204,8 @@ int relpos_zdres_base(relpos_ctx_t *ctx, const obsd_t *obs)
     }
     /* time-interpolation of residuals (for post-processing) */
     if (opt->intpref) {
-        ctx->dt = intpres(obs[0].time, obs + nu, nr, ctx->nav, rtk,
-                          ctx->y + nu * ctx->nf * 2);
+        ctx->dt = intpres_step(obs[0].time, obs + nu, nr, ctx->nav, rtk,
+                               ctx->y + nu * ctx->nf * 2);
     }
     return 1;
 }
