@@ -3043,30 +3043,40 @@ PYBIND11_MODULE(pyrtklib, m) {
         const double *rov = static_cast<const double*>(rover_ecef.data());
         const double *bas = static_cast<const double*>(base_ecef.data());
 
-        /* allocate output arrays */
-        auto el   = py::array_t<double>(ns);
-        auto az   = py::array_t<double>(ns);
-        auto spos = py::array_t<double>(ns * 3);
-        auto svel = py::array_t<double>(ns * 3);
-        auto sclk = py::array_t<double>(ns);
-        auto scdr = py::array_t<double>(ns);
-        auto los  = py::array_t<double>(ns * 3);
-        auto gr   = py::array_t<double>(ns);
-        auto sag  = py::array_t<double>(ns);
-        auto trp  = py::array_t<double>(ns);
-        auto ion  = py::array_t<double>(ns);
-        auto phw  = py::array_t<double>(ns);
-        auto bgr  = py::array_t<double>(ns);
-        auto bel  = py::array_t<double>(ns);
-        auto baz  = py::array_t<double>(ns);
-        auto famb = py::array_t<double>(ns * nf);
-        auto wl   = py::array_t<double>(ns * nf);
-        auto resc = py::array_t<double>(ns * nf);
-        auto resp = py::array_t<double>(ns * nf);
-        auto fix  = py::array_t<double>(ns * nf);
-        auto lock = py::array_t<double>(ns * nf);
-        auto slip = py::array_t<double>(ns * nf);
-        auto snr  = py::array_t<double>(ns * nf);
+        /* allocate output arrays via numpy to guarantee correct strides */
+        py::object np_mod = py::module_::import("numpy");
+        py::object np_empty = np_mod.attr("empty");
+        py::object f64_dtype = np_mod.attr("float64");
+        py::object i32_dtype = np_mod.attr("int32");
+        auto mk1d = [&np_empty, &f64_dtype](int n) {
+            return np_empty(n, f64_dtype).cast<py::array_t<double>>();
+        };
+        auto mk1di = [&np_empty, &i32_dtype](int n) {
+            return np_empty(n, i32_dtype).cast<py::array_t<int>>();
+        };
+        auto el   = mk1d(ns);
+        auto az   = mk1d(ns);
+        auto spos = mk1d(ns * 3);
+        auto svel = mk1d(ns * 3);
+        auto sclk = mk1d(ns);
+        auto scdr = mk1d(ns);
+        auto los  = mk1d(ns * 3);
+        auto gr   = mk1d(ns);
+        auto sag  = mk1d(ns);
+        auto trp  = mk1d(ns);
+        auto ion  = mk1d(ns);
+        auto phw  = mk1d(ns);
+        auto bgr  = mk1d(ns);
+        auto bel  = mk1d(ns);
+        auto baz  = mk1d(ns);
+        auto famb = mk1d(ns * nf);
+        auto wl   = mk1d(ns * nf);
+        auto resc = mk1d(ns * nf);
+        auto resp = mk1d(ns * nf);
+        auto fix  = mk1d(ns * nf);
+        auto lock = mk1d(ns * nf);
+        auto slip = mk1d(ns * nf);
+        auto snr  = mk1d(ns * nf);
 
         relpos_extract_sat_data(&ctx, rov, bas, flags,
             static_cast<double*>(el.mutable_data()),
@@ -3095,7 +3105,7 @@ PYBIND11_MODULE(pyrtklib, m) {
 
         /* also extract sat_no and sat_id strings for Python indexing */
         py::list sat_ids(ns);
-        py::array_t<int> sat_nos(ns);
+        py::array_t<int> sat_nos = mk1di(ns);
         int *sat_nos_ptr = static_cast<int*>(sat_nos.mutable_data());
         for (int j = 0; j < ns; j++) {
             char id_buf[8] = {0};
@@ -3157,8 +3167,14 @@ PYBIND11_MODULE(pyrtklib, m) {
         int nf = ctx.nf;
         if (ns <= 0 || !ctx.xa) return py::dict();
 
-        auto famb = py::array_t<double>(ns * nf);
-        auto fix  = py::array_t<double>(ns * nf);
+        py::object np_mod2 = py::module_::import("numpy");
+        py::object np_empty2 = np_mod2.attr("empty");
+        py::object f64_dtype2 = np_mod2.attr("float64");
+        auto mk1d2 = [&np_empty2, &f64_dtype2](int n) {
+            return np_empty2(n, f64_dtype2).cast<py::array_t<double>>();
+        };
+        auto famb = mk1d2(ns * nf);
+        auto fix  = mk1d2(ns * nf);
 
         relpos_extract_fixed_amb(&ctx,
             static_cast<double*>(famb.mutable_data()),
