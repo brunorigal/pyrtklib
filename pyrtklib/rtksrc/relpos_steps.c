@@ -471,7 +471,9 @@ void relpos_extract_sat_data(
     double *out_fix,             /* [ns*nf] fix flags (flag bit 2) */
     double *out_lock,            /* [ns*nf] lock counts (flag bit 2) */
     double *out_slip,            /* [ns*nf] slip flags (flag bit 2) */
-    double *out_snr              /* [ns*nf] SNR (dBHz) (flag bit 2) */
+    double *out_snr,             /* [ns*nf] SNR (dBHz) (flag bit 2) */
+    double *out_rover_dant,      /* [ns*nf] rover receiver antenna corr (m) (flag bit 0) */
+    double *out_base_dant        /* [ns*nf] base receiver antenna corr (m) (flag bit 1) */
 )
 {
     rtk_t *rtk = ctx->rtk;
@@ -556,6 +558,13 @@ void relpos_extract_sat_data(
             ionocorr(rtk->sol.time, ctx->nav, sat_no, rover_pos, azel_buf,
                      opt->ionoopt, ion, ion_var);
             out_iono[j] = ion[0];
+
+            /* rover receiver antenna correction (PCO + PCV) */
+            if (out_rover_dant) {
+                double dant_buf[NFREQ] = {0};
+                antmodel(opt->pcvr+0, opt->antdel[0], azel_buf, 1, dant_buf);
+                for (f = 0; f < nf; f++) out_rover_dant[j*nf+f] = dant_buf[f];
+            }
         }
 
         /* base station geometry */
@@ -568,6 +577,13 @@ void relpos_extract_sat_data(
             satazel(base_pos, base_scratch_e, base_azel);
             out_base_el_deg[j] = base_azel[1] * R2D;
             out_base_az_deg[j] = base_azel[0] * R2D;
+
+            /* base receiver antenna correction (PCO + PCV) */
+            if (out_base_dant) {
+                double dant_buf[NFREQ] = {0};
+                antmodel(opt->pcvr+1, opt->antdel[1], base_azel, 1, dant_buf);
+                for (f = 0; f < nf; f++) out_base_dant[j*nf+f] = dant_buf[f];
+            }
         }
 
         /* per-frequency ssat fields */

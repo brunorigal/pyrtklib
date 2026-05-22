@@ -783,8 +783,26 @@ extern void satposs(gtime_t teph, const obsd_t *obs, int n, const nav_t *nav,
         
         /* satellite clock bias by broadcast ephemeris */
         if (!ephclk(time[i],teph,obs[i].sat,nav,&dt)) {
-            trace(3,"no broadcast clock %s sat=%2d\n",time_str(time[i],3),obs[i].sat);
-            continue;
+            /* fallback: use precise clock for initial transmission time when
+             * precise ephemeris is selected and broadcast is unavailable */
+            if (ephopt==EPHOPT_PREC) {
+                double rs_tmp[6],dts_tmp[2],var_tmp;
+                int svh_tmp;
+                if (peph2pos(time[i],obs[i].sat,nav,0,rs_tmp,dts_tmp,&var_tmp)) {
+                    dt=dts_tmp[0];
+                    trace(3,"using precise clock fallback %s sat=%2d dt=%.9f\n",
+                          time_str(time[i],3),obs[i].sat,dt);
+                }
+                else {
+                    trace(3,"no broadcast or precise clock %s sat=%2d\n",
+                          time_str(time[i],3),obs[i].sat);
+                    continue;
+                }
+            }
+            else {
+                trace(3,"no broadcast clock %s sat=%2d\n",time_str(time[i],3),obs[i].sat);
+                continue;
+            }
         }
         time[i]=timeadd(time[i],-dt);
         

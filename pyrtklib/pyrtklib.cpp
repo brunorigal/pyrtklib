@@ -3077,6 +3077,8 @@ PYBIND11_MODULE(pyrtklib, m) {
         auto lock = mk1d(ns * nf);
         auto slip = mk1d(ns * nf);
         auto snr  = mk1d(ns * nf);
+        auto rdant = mk1d(ns * nf);
+        auto bdant = mk1d(ns * nf);
 
         relpos_extract_sat_data(&ctx, rov, bas, flags,
             static_cast<double*>(el.mutable_data()),
@@ -3101,7 +3103,9 @@ PYBIND11_MODULE(pyrtklib, m) {
             static_cast<double*>(fix.mutable_data()),
             static_cast<double*>(lock.mutable_data()),
             static_cast<double*>(slip.mutable_data()),
-            static_cast<double*>(snr.mutable_data()));
+            static_cast<double*>(snr.mutable_data()),
+            static_cast<double*>(rdant.mutable_data()),
+            static_cast<double*>(bdant.mutable_data()));
 
         /* also extract sat_no and sat_id strings for Python indexing */
         py::list sat_ids(ns);
@@ -3127,6 +3131,8 @@ PYBIND11_MODULE(pyrtklib, m) {
         auto lock2 = np_reshape(lock, py::make_tuple(ns, nf));
         auto slip2 = np_reshape(slip, py::make_tuple(ns, nf));
         auto snr2  = np_reshape(snr,  py::make_tuple(ns, nf));
+        auto rdant2 = np_reshape(rdant, py::make_tuple(ns, nf));
+        auto bdant2 = np_reshape(bdant, py::make_tuple(ns, nf));
 
         py::dict result;
         result["sat_ids"]       = sat_ids;
@@ -3154,6 +3160,8 @@ PYBIND11_MODULE(pyrtklib, m) {
         result["lock"]          = lock2;
         result["slip"]          = slip2;
         result["snr"]           = snr2;
+        result["rover_dant"]    = rdant2;
+        result["base_dant"]     = bdant2;
         return result;
     }, py::arg("ctx"), py::arg("rover_ecef"), py::arg("base_ecef"),
        py::arg("flags") = 0xF,
