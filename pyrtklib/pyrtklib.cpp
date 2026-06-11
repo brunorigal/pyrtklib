@@ -3079,6 +3079,8 @@ PYBIND11_MODULE(pyrtklib, m) {
         auto snr  = mk1d(ns * nf);
         auto rdant = mk1d(ns * nf);
         auto bdant = mk1d(ns * nf);
+        auto btrp  = mk1d(ns);
+        auto bion  = mk1d(ns);
 
         relpos_extract_sat_data(&ctx, rov, bas, flags,
             static_cast<double*>(el.mutable_data()),
@@ -3105,7 +3107,9 @@ PYBIND11_MODULE(pyrtklib, m) {
             static_cast<double*>(slip.mutable_data()),
             static_cast<double*>(snr.mutable_data()),
             static_cast<double*>(rdant.mutable_data()),
-            static_cast<double*>(bdant.mutable_data()));
+            static_cast<double*>(bdant.mutable_data()),
+            static_cast<double*>(btrp.mutable_data()),
+            static_cast<double*>(bion.mutable_data()));
 
         /* also extract sat_no and sat_id strings for Python indexing */
         py::list sat_ids(ns);
@@ -3162,6 +3166,8 @@ PYBIND11_MODULE(pyrtklib, m) {
         result["snr"]           = snr2;
         result["rover_dant"]    = rdant2;
         result["base_dant"]     = bdant2;
+        result["base_tropo"]    = btrp;
+        result["base_iono"]     = bion;
         return result;
     }, py::arg("ctx"), py::arg("rover_ecef"), py::arg("base_ecef"),
        py::arg("flags") = 0xF,

@@ -473,7 +473,9 @@ void relpos_extract_sat_data(
     double *out_slip,            /* [ns*nf] slip flags (flag bit 2) */
     double *out_snr,             /* [ns*nf] SNR (dBHz) (flag bit 2) */
     double *out_rover_dant,      /* [ns*nf] rover receiver antenna corr (m) (flag bit 0) */
-    double *out_base_dant        /* [ns*nf] base receiver antenna corr (m) (flag bit 1) */
+    double *out_base_dant,       /* [ns*nf] base receiver antenna corr (m) (flag bit 1) */
+    double *out_base_tropo,      /* [ns] base tropospheric delay (m) (flag bit 1) */
+    double *out_base_iono        /* [ns] base ionospheric delay L1 (m) (flag bit 1) */
 )
 {
     rtk_t *rtk = ctx->rtk;
@@ -483,6 +485,7 @@ void relpos_extract_sat_data(
     double rover_pos[3], base_pos[3];  /* geodetic (lat,lon,h) */
     double scratch_sv[6], scratch_e[3], azel_buf[2];
     double trp[1], trp_var[1], ion[1], ion_var[1];
+    double btrp[1], btrp_var[1], bion[1], bion_var[1];
     int do_vrs   = (flags & 1);
     int do_base  = (flags & 2);
     int do_ssat  = (flags & 4);
@@ -577,6 +580,20 @@ void relpos_extract_sat_data(
             satazel(base_pos, base_scratch_e, base_azel);
             out_base_el_deg[j] = base_azel[1] * R2D;
             out_base_az_deg[j] = base_azel[0] * R2D;
+
+            /* base tropospheric / ionospheric delays (same models as rover) */
+            if (out_base_tropo) {
+                btrp[0] = 0.0;
+                tropcorr(rtk->sol.time, ctx->nav, base_pos, base_azel,
+                         opt->tropopt, btrp, btrp_var);
+                out_base_tropo[j] = btrp[0];
+            }
+            if (out_base_iono) {
+                bion[0] = 0.0;
+                ionocorr(rtk->sol.time, ctx->nav, sat_no, base_pos, base_azel,
+                         opt->ionoopt, bion, bion_var);
+                out_base_iono[j] = bion[0];
+            }
 
             /* base receiver antenna correction (PCO + PCV) */
             if (out_base_dant) {

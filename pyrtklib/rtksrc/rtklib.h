@@ -1771,7 +1771,8 @@ void relpos_extract_sat_data(const relpos_ctx_t *ctx,
     double *out_float_amb, double *out_wl,
     double *out_resc, double *out_resp, double *out_fix, double *out_lock,
     double *out_slip, double *out_snr,
-    double *out_rover_dant, double *out_base_dant);
+    double *out_rover_dant, double *out_base_dant,
+    double *out_base_tropo, double *out_base_iono);
 void relpos_extract_fixed_amb(const relpos_ctx_t *ctx,
     double *out_fixed_amb, double *out_fix_flags);
 
