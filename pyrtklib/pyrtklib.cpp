@@ -2180,6 +2180,9 @@ PYBIND11_MODULE(pyrtklib, m) {
         .def_property_readonly("ptr",[](snrmask_t& o){return &o;},py::return_value_policy::reference);
 
     py::class_<prcopt_t>(m,"prcopt_t").def(py::init())
+        .def(py::init<const prcopt_t&>())
+        .def("__copy__",[](const prcopt_t& o){return new prcopt_t(o);})
+        .def("__deepcopy__",[](const prcopt_t& o, py::dict){return new prcopt_t(o);},py::arg("memo"))
         .def_readwrite("mode",&prcopt_t::mode)
         .def_readwrite("soltype",&prcopt_t::soltype)
         .def_readwrite("nf",&prcopt_t::nf)
