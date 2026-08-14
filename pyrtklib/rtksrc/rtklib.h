@@ -214,6 +214,13 @@ extern "C" {
 #endif
 #define NSYS        (NSYSGPS+NSYSGLO+NSYSGAL+NSYSQZS+NSYSCMP+NSYSIRN+NSYSLEO) /* number of systems */
 
+#define NSYSPCV     7                   /* number of systems in pcv_t per-system arrays */
+                                        /* GPS,GLO,GAL,QZS,SBS,CMP,IRN - fixed width, deliberately
+                                           NOT NSYS: NSYS expands from the ENA* flags (so it shrinks
+                                           if one is dropped, silently renumbering every entry) and
+                                           it never counts SBAS. See sys2pcvidx() in rtkcmn.c. */
+#define PCVI(s,f)   ((s)*NFREQ+(f))     /* index into pcv_t off_sys/var_sys */
+
 #define MINPRNSBS   120                 /* min satellite PRN number of SBAS */
 #define MAXPRNSBS   158                 /* max satellite PRN number of SBAS */
 #define NSATSBS     (MAXPRNSBS-MINPRNSBS+1) /* number of SBAS satellites */
@@ -570,6 +577,15 @@ typedef struct {        /* antenna parameter type */
     double off[NFREQ][ 3]; /* phase center offset e/n/u or x/y/z (m) */
     double var[NFREQ][19]; /* phase center variation (m) */
                         /* el=90,85,...,0 or nadir=0,1,2,3,... (deg) */
+                        /* receiver antenna: GPS values (unchanged legacy layout);
+                           satellite antenna: that satellite's own system */
+    int    has_sys[NSYSPCV];            /* bit f set: slot f read from ANTEX for this system */
+    double off_sys[NSYSPCV*NFREQ][ 3];  /* per-system phase center offset, index PCVI(s,f) */
+    double var_sys[NSYSPCV*NFREQ][19];  /* per-system phase center variation, index PCVI(s,f) */
+                        /* Flattened to 2-D on purpose: gen_rtk.py only emits 1-D and 2-D struct
+                           members, and would silently mis-bind a 3-D array as Arr2D of its first
+                           two dimensions. Slots without their own ANTEX data are resolved to the
+                           legacy off/var by readpcv(), reproducing pre-per-system behaviour. */
 } pcv_t;
 
 typedef struct {        /* antenna parameters type */
@@ -1453,7 +1469,11 @@ EXPORT pcv_t *searchpcv(int sat, const char *type, gtime_t time,
                         const pcvs_t *pcvs);
 EXPORT void antmodel(const pcv_t *pcv, const double *del, const double *azel,
                      int opt, double *dant);
+EXPORT void antmodel_sys(const pcv_t *pcv, int sys, const double *del,
+                         const double *azel, int opt, double *dant);
 EXPORT void antmodel_s(const pcv_t *pcv, double nadir, double *dant);
+EXPORT int  sys2pcvidx(int sys);
+EXPORT int  antexband2idx(int sys, int band);
 
 /* earth tide models ---------------------------------------------------------*/
 EXPORT void sunmoonpos(gtime_t tutc, const double *erpv, double *rsun,

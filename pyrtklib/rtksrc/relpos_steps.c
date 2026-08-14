@@ -565,7 +565,8 @@ void relpos_extract_sat_data(
             /* rover receiver antenna correction (PCO + PCV) */
             if (out_rover_dant) {
                 double dant_buf[NFREQ] = {0};
-                antmodel(opt->pcvr+0, opt->antdel[0], azel_buf, 1, dant_buf);
+                antmodel_sys(opt->pcvr+0, satsys(sat_no, NULL), opt->antdel[0],
+                             azel_buf, 1, dant_buf);
                 for (f = 0; f < nf; f++) out_rover_dant[j*nf+f] = dant_buf[f];
             }
         }
@@ -598,7 +599,8 @@ void relpos_extract_sat_data(
             /* base receiver antenna correction (PCO + PCV) */
             if (out_base_dant) {
                 double dant_buf[NFREQ] = {0};
-                antmodel(opt->pcvr+1, opt->antdel[1], base_azel, 1, dant_buf);
+                antmodel_sys(opt->pcvr+1, satsys(sat_no, NULL), opt->antdel[1],
+                             base_azel, 1, dant_buf);
                 for (f = 0; f < nf; f++) out_base_dant[j*nf+f] = dant_buf[f];
             }
         }

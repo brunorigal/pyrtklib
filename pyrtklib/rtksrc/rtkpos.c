@@ -915,9 +915,9 @@ int zdres(int base, const obsd_t *obs, int n, const double *rs,
         zhd=tropmodel(obs[0].time,pos,zazel,0.0);
         r+=tropmapf(obs[i].time,pos,azel+i*2,NULL)*zhd;
         
-        /* receiver antenna phase center correction */
-        antmodel(opt->pcvr+index,opt->antdel[index],azel+i*2,opt->posopt[1],
-                 dant);
+        /* receiver antenna phase center correction (per observed constellation) */
+        antmodel_sys(opt->pcvr+index,satsys(obs[i].sat,NULL),opt->antdel[index],
+                     azel+i*2,opt->posopt[1],dant);
         
         /* UD phase/code residual for satellite */
         zdres_sat(base,r,obs+i,nav,azel+i*2,dant,opt,y+i*nf*2,freq+i*nf);

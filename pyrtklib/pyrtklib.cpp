@@ -322,6 +322,13 @@ extern void antmodel(const pcv_t *pcv,Arr1D<double> Sdel,Arr1D<double> Sazel, in
     antmodel(pcv, del, azel, opt, dant);
 
 }
+extern void antmodel_sys(const pcv_t *pcv, int sys,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant){
+    const double *del = Sdel.src;
+    const double *azel = Sazel.src;
+    double *dant = Sdant.src;
+    antmodel_sys(pcv, sys, del, azel, opt, dant);
+
+}
 extern void antmodel_s(const pcv_t *pcv, double nadir,Arr1D<double> Sdant){
     double *dant = Sdant.src;
     antmodel_s(pcv, nadir, dant);
@@ -1316,6 +1323,7 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.attr("NSATLEO")=0;
     m.attr("NSYSLEO")=0;
     m.attr("NSYS")=(NSYSGPS+NSYSGLO+NSYSGAL+NSYSQZS+NSYSCMP+NSYSIRN+NSYSLEO);
+    m.attr("NSYSPCV")=NSYSPCV;
     m.attr("MINPRNSBS")=120;
     m.attr("MAXPRNSBS")=158;
     m.attr("NSATSBS")=(MAXPRNSBS-MINPRNSBS+1);
@@ -1757,6 +1765,9 @@ PYBIND11_MODULE(pyrtklib, m) {
         .def_property_readonly("code",[](pcv_t& o) {Arr1D<char>* tmp = new Arr1D<char>(o.code,MAXANT);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("off",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.off,NFREQ, 3);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("var",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.var,NFREQ,19);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("has_sys",[](pcv_t& o) {Arr1D<int>* tmp = new Arr1D<int>(o.has_sys,NSYSPCV);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("off_sys",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.off_sys,NSYSPCV*NFREQ, 3);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("var_sys",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.var_sys,NSYSPCV*NFREQ,19);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("ptr",[](pcv_t& o){return &o;},py::return_value_policy::reference);
 
     py::class_<pcvs_t>(m,"pcvs_t").def(py::init())
@@ -2580,6 +2591,9 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.def("ionocorr",static_cast<int(*)(gtime_t time, const nav_t *nav, int sat,Arr1D<double> Spos,Arr1D<double> Sazel, int ionoopt,Arr1D<double> Sion,Arr1D<double> Svar)>(&ionocorr),"rtklib ionocorr");
     m.def("tropcorr",static_cast<int(*)(gtime_t time, const nav_t *nav,Arr1D<double> Spos,Arr1D<double> Sazel, int tropopt,Arr1D<double> Strp,Arr1D<double> Svar)>(&tropcorr),"rtklib tropcorr");
     m.def("antmodel",static_cast<void(*)(const pcv_t *pcv,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant)>(&antmodel),"rtklib antmodel");
+    m.def("antmodel_sys",static_cast<void(*)(const pcv_t *pcv, int sys,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant)>(&antmodel_sys),"rtklib antmodel_sys");
+    m.def("sys2pcvidx",&sys2pcvidx,"rtklib sys2pcvidx");
+    m.def("antexband2idx",&antexband2idx,"rtklib antexband2idx");
     m.def("antmodel_s",static_cast<void(*)(const pcv_t *pcv, double nadir,Arr1D<double> Sdant)>(&antmodel_s),"rtklib antmodel_s");
     m.def("sunmoonpos",static_cast<void(*)(gtime_t tutc,Arr1D<double> Serpv,Arr1D<double> Srsun,Arr1D<double> Srmoon,Arr1D<double> Sgmst)>(&sunmoonpos),"rtklib sunmoonpos");
     m.def("tidedisp",static_cast<void(*)(gtime_t tutc,Arr1D<double> Srr, int opt, const erp_t *erp,Arr1D<double> Sodisp,Arr1D<double> Sdr)>(&tidedisp),"rtklib tidedisp");
