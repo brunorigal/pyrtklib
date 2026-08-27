@@ -88,7 +88,12 @@ static int readsp3h(FILE *fp, gtime_t *time, char *type, int *sats,
         }
         else if (!strncmp(buff,"+ ",2)) { /* satellite id */
             if (ns==0) {
-                ns=(int)str2num(buff,4,2);
+                /* number of satellites: SP3-a/b/c put a 2-digit count in
+                   columns 5-6, SP3-d widens it to columns 4-6 for >=100
+                   satellites. Reading only (4,2) truncates 117 -> 17, which
+                   silently drops every non-GPS satellite of a modern MGEX
+                   product. (3,3) covers both: str2num skips leading blanks. */
+                ns=(int)str2num(buff,3,3);
             }
             for (j=0;j<17&&k<ns;j++) {
                 sys=code2sys(buff[9+3*j]);

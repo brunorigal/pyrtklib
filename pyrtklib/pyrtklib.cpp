@@ -1288,7 +1288,7 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.attr("TSYS_QZS")=4;
     m.attr("TSYS_CMP")=5;
     m.attr("TSYS_IRN")=6;
-    m.attr("NFREQ")=3;
+    m.attr("NFREQ")=NFREQ;
     m.attr("NFREQGLO")=2;
     m.attr("NEXOBS")=0;
     m.attr("SNR_UNIT")=0.001;
