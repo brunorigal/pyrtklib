@@ -1,8 +1,10 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include <memory>
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 
 namespace py = pybind11;
 #define BINDARR1D(Type) pybind11::class_<Arr1D<Type>>(m,"Arr1D"#Type)\
@@ -118,9 +120,18 @@ class Arr2D{
         };
 };
 
+// Helper trait: true for types that support buffer protocol (standard numeric, not char/long double)
+template<typename T>
+struct supports_buffer : std::integral_constant<bool,
+    std::is_arithmetic<T>::value
+    && !std::is_same<T, char>::value
+    && !std::is_same<T, unsigned char>::value
+    && !std::is_same<T, long double>::value> {};
+
+// Internal helper that binds common Arr1D methods on an already-created class
 template<typename Type>
-void bindArr1D(py::module_& m, const std::string& typeName) {
-    auto cls = py::class_<Arr1D<Type>>(m, ("Arr1D" + typeName).c_str())
+void _bindArr1D_common(py::class_<Arr1D<Type>>& cls) {
+    cls
     .def(py::init([](int len){return std::unique_ptr<Arr1D<Type>>(new Arr1D<Type>(len));}))
     .def(py::init([](Type* src,int len){return std::unique_ptr<Arr1D<Type>>(new Arr1D<Type>((void*)src,len));}))
     .def("__len__",[](Arr1D<Type> &arr){return &arr.len;})
@@ -133,16 +144,67 @@ void bindArr1D(py::module_& m, const std::string& typeName) {
     .def_readonly("ptr",&Arr1D<Type>::src,py::return_value_policy::reference)
     .def("set",[](Arr1D<Type> &arr,Arr1D<Type> *nsrc){arr.src = (Type*)nsrc->src;})
     .def("print",[](Arr1D<Type> &arr){std::cout<<(arr.src)<<std::endl;});
+}
 
-    if constexpr (std::is_same<Type, char>::value) {
-        cls.def(py::init([](const std::string& s) {
-                auto* arr = new Arr1D<char>(s.size()+1);
-                std::memcpy(arr->src, s.data(), s.size());
-                arr->src[s.size()] = '\0';  // Null-terminate the string
-                return arr;
-            }), py::arg("s"), "Constructor from Python str");
+template<typename Type>
+void bindArr1D(py::module_& m, const std::string& typeName) {
+    if constexpr (supports_buffer<Type>::value) {
+        auto cls = py::class_<Arr1D<Type>>(m, ("Arr1D" + typeName).c_str(), py::buffer_protocol());
+        _bindArr1D_common<Type>(cls);
+
+        cls.def_buffer([](Arr1D<Type> &arr) -> py::buffer_info {
+            if (arr.len < 0) {
+                throw std::runtime_error("Cannot export buffer: array length unknown (len=-1). "
+                                         "Use to_numpy(length) instead.");
+            }
+            /* debug: fprintf(stderr, "def_buffer: src=%p len=%d\n", (void*)arr.src, arr.len); */
+            return py::buffer_info(
+                arr.src,
+                sizeof(Type),
+                py::format_descriptor<Type>::format(),
+                1,
+                { (size_t)arr.len },
+                { sizeof(Type) }
+            );
+        });
+        cls.def("to_numpy", [](Arr1D<Type> &arr, int length) {
+            /* Workaround: create py::array_t directly from raw memory via capsule */
+            py::capsule free_when_done([](){});  /* no-op deleter; we copy below */
+            py::array_t<Type> view({length}, {sizeof(Type)}, arr.src, free_when_done);
+            /* Return a copy so the result owns its memory */
+            return py::array_t<Type>(view.request());
+        }, py::arg("length"), "Copy elements into a numpy array with explicit length");
+        cls.def("to_numpy", [](Arr1D<Type> &arr) {
+            if (arr.len < 0) {
+                throw std::runtime_error("Cannot export: array length unknown (len=-1). "
+                                         "Pass explicit length.");
+            }
+            py::capsule free_when_done([](){});
+            py::array_t<Type> view({arr.len}, {sizeof(Type)}, arr.src, free_when_done);
+            return py::array_t<Type>(view.request());
+        }, "Copy elements into a numpy array");
+
+        if constexpr (std::is_same<Type, char>::value) {
+            cls.def(py::init([](const std::string& s) {
+                    auto* arr = new Arr1D<char>(s.size()+1);
+                    std::memcpy(arr->src, s.data(), s.size());
+                    arr->src[s.size()] = '\0';
+                    return arr;
+                }), py::arg("s"), "Constructor from Python str");
+        }
+    } else {
+        auto cls = py::class_<Arr1D<Type>>(m, ("Arr1D" + typeName).c_str());
+        _bindArr1D_common<Type>(cls);
+
+        if constexpr (std::is_same<Type, char>::value) {
+            cls.def(py::init([](const std::string& s) {
+                    auto* arr = new Arr1D<char>(s.size()+1);
+                    std::memcpy(arr->src, s.data(), s.size());
+                    arr->src[s.size()] = '\0';
+                    return arr;
+                }), py::arg("s"), "Constructor from Python str");
+        }
     }
-
 }
 
 

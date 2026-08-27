@@ -705,7 +705,7 @@ static int code2freq_IRN(uint8_t code, double *freq)
 extern int code2idx(int sys, uint8_t code)
 {
     double freq;
-    
+
     switch (sys) {
         case SYS_GPS: return code2freq_GPS(code,&freq);
         case SYS_GLO: return code2freq_GLO(code,0,&freq);
@@ -716,6 +716,73 @@ extern int code2idx(int sys, uint8_t code)
         case SYS_IRN: return code2freq_IRN(code,&freq);
     }
     return -1;
+}
+/* satellite system to pcv_t per-system index ----------------------------------
+* args   : int    sys       I   satellite system (SYS_???)
+* return : index into pcv_t off_sys/var_sys/has_sys (-1: unsupported)
+*-----------------------------------------------------------------------------*/
+extern int sys2pcvidx(int sys)
+{
+    switch (sys) {
+        case SYS_GPS: return 0;
+        case SYS_GLO: return 1;
+        case SYS_GAL: return 2;
+        case SYS_QZS: return 3;
+        case SYS_SBS: return 4;
+        case SYS_CMP: return 5;
+        case SYS_IRN: return 6;
+    }
+    return -1;
+}
+/* ANTEX frequency band number to frequency index ------------------------------
+* args   : int    sys       I   satellite system (SYS_???)
+*          int    band      I   ANTEX band number (the digit in e.g. "E07")
+* return : frequency index (-1: this system has no such band)
+* notes  : derived from code2idx(), because every code2freq_XXX() switches only
+*          on the band digit of the obs code - so any obs code carrying that
+*          digit yields the system's index for that band. Keeping this derived
+*          rather than tabulated means code2freq_XXX() stays the single source
+*          of truth and the two cannot drift apart.
+*-----------------------------------------------------------------------------*/
+extern int antexband2idx(int sys, int band)
+{
+    uint8_t code;
+    char *obs;
+
+    if (band<1||band>9) return -1;
+
+    for (code=1;code<=MAXCODE;code++) {
+        obs=code2obs(code);
+        if (!*obs||obs[0]!=(char)('0'+band)) continue;
+        return code2idx(sys,code);
+    }
+    return -1;
+}
+/* rank of an ANTEX band when two bands share a frequency index -----------------
+* args   : int    sys       I   satellite system (SYS_???)
+*          int    band      I   ANTEX band number
+* return : rank (lower wins)
+* notes  : ANTEX blocks are not stored in band order (igs20.atx lists C02 after
+*          C01), so a first-wins or last-wins rule would pick a different signal
+*          depending on file layout. The preference mirrors codepris[] above, so
+*          the loaded PCO matches the signal RTKLIB's own code selection lands
+*          on: BDS index 0 is "IQXDPAN" (B1I attributes I/Q/X before B1C's D/P),
+*          GLONASS index 0 is "CPABX" (G1 before G1a) and index 1 is "PCABX"
+*          (G2 before G2a).
+*          Tabulated by hand, not derived from getcodepri(), which cannot express
+*          it: codepris[] is indexed by frequency index rather than by band, and
+*          obscodes[] spells BDS B1I both ways ("1I/1Q/1X" from RINEX 3.02 and
+*          "2I/2Q/2X" from 3.03), so bands 1 and 2 both reach 'I' at priority 14
+*          and tie - handing the slot to whichever block the file happens to list
+*          first, the very thing this ranking exists to prevent. Keep in step
+*          with codepris[] by hand if those priorities ever change; a runtime
+*          setcodepri() deliberately does not move the PCO choice.
+*-----------------------------------------------------------------------------*/
+static int antexband_rank(int sys, int band)
+{
+    if (sys==SYS_GLO) return (band==4||band==6)?1:0; /* G1a/G2a lose to G1/G2 */
+    if (sys==SYS_CMP) return (band==1)?1:0;          /* B1C loses to B1I */
+    return 0;
 }
 /* system and obs code to frequency --------------------------------------------
 * convert system and obs code to carrier frequency
@@ -2338,6 +2405,22 @@ static int readngspcv(const char *file, pcvs_t *pcvs)
     
     return 1;
 }
+/* ANTEX system letter to satellite system -----------------------------------*/
+static int antexsys(char c)
+{
+    switch (c) {
+        case 'G': return SYS_GPS;
+        case 'R': return SYS_GLO;
+        case 'E': return SYS_GAL;
+        case 'J': return SYS_QZS;
+        case 'S': return SYS_SBS;
+        case 'C': return SYS_CMP;
+        case 'I': return SYS_IRN;
+    }
+    return SYS_NONE;
+}
+#define ANTEX_RANK_NONE 9 /* worse than any antexband_rank() result */
+
 /* read antex file ----------------------------------------------------------*/
 static int readantex(const char *file, pcvs_t *pcvs)
 {
@@ -2345,29 +2428,34 @@ static int readantex(const char *file, pcvs_t *pcvs)
     static const pcv_t pcv0={0};
     pcv_t pcv;
     double neu[3];
-    int i,f,freq=0,state=0,freqs[]={1,2,5,0};
+    int i,j,band,sys,rank,state=0,sysi=-1,idx=-1,legacy=0;
+    int best[NSYSPCV][NFREQ]={{0}}; /* real reset is at START OF ANTENNA below;
+                                       initialised here only to satisfy compilers
+                                       that cannot see that through strstr() */
     char buff[256];
-    
+
     trace(3,"readantex: file=%s\n",file);
-    
+
     if (!(fp=fopen(file,"r"))) {
         trace(2,"antex pcv file open error: %s\n",file);
         return 0;
     }
     while (fgets(buff,sizeof(buff),fp)) {
-        
+
         if (strlen(buff)<60||strstr(buff+60,"COMMENT")) continue;
-        
+
         if (strstr(buff+60,"START OF ANTENNA")) {
             pcv=pcv0;
             state=1;
+            sysi=idx=-1; legacy=0;
+            for (i=0;i<NSYSPCV;i++) for (j=0;j<NFREQ;j++) best[i][j]=ANTEX_RANK_NONE;
         }
         if (strstr(buff+60,"END OF ANTENNA")) {
             addpcv(&pcv,pcvs);
             state=0;
         }
         if (!state) continue;
-        
+
         if (strstr(buff+60,"TYPE / SERIAL NO")) {
             strncpy(pcv.type,buff   ,20); pcv.type[20]='\0';
             strncpy(pcv.code,buff+20,20); pcv.code[20]='\0';
@@ -2382,29 +2470,58 @@ static int readantex(const char *file, pcvs_t *pcvs)
             if (!str2time(buff,0,43,&pcv.te)) continue;
         }
         else if (strstr(buff+60,"START OF FREQUENCY")) {
-            if (!pcv.sat&&buff[3]!='G') continue; /* only read rec ant for GPS */
-            if (sscanf(buff+4,"%d",&f)<1) continue;
-            for (i=0;freqs[i];i++) if (freqs[i]==f) break;
-            if (freqs[i]) freq=i+1;
+            sysi=idx=-1; legacy=0;
+            if (!(sys=antexsys(buff[3]))) continue;
+            /* a satellite block only describes its own system */
+            if (pcv.sat&&sys!=satsys(pcv.sat,NULL)) continue;
+            if (sscanf(buff+4,"%d",&band)<1) continue;
+            if ((idx=antexband2idx(sys,band))<0||idx>=NFREQ) { idx=-1; continue; }
+            if ((sysi=sys2pcvidx(sys))<0) { sysi=idx=-1; continue; }
+
+            /* two ANTEX bands can share one index (BDS B1I/B1C, GLO G1/G1a);
+               blocks are not in band order, so pick by rank, not by position */
+            rank=antexband_rank(sys,band);
+            if (rank>=best[sysi][idx]) { sysi=idx=-1; continue; }
+            best[sysi][idx]=rank;
+
+            /* this band takes the slot over: drop whatever a worse-ranked band
+               left there, so off_sys and var_sys can never end up describing two
+               different signals (a block carrying NORTH/EAST/UP but no NOAZI
+               would otherwise keep the loser's PCV against the winner's PCO) */
+            for (i=0;i< 3;i++) pcv.off_sys[PCVI(sysi,idx)][i]=0.0;
+            for (i=0;i<19;i++) pcv.var_sys[PCVI(sysi,idx)][i]=0.0;
+            pcv.has_sys[sysi]&=~(1<<idx);
+
+            /* legacy off/var hold GPS for a receiver antenna and the satellite's
+               own system for a satellite antenna - which is what antmodel(),
+               antmodel_s() and satantoff() read. Receiver blocks of other systems
+               never touch them, so pcv.off is unchanged for every receiver. */
+            legacy=(pcv.sat||sys==SYS_GPS);
         }
         else if (strstr(buff+60,"END OF FREQUENCY")) {
-            freq=0;
+            sysi=idx=-1; legacy=0;
         }
         else if (strstr(buff+60,"NORTH / EAST / UP")) {
-            if (freq<1||NFREQ<freq) continue;
+            if (sysi<0||idx<0) continue;
             if (decodef(buff,3,neu)<3) continue;
-            pcv.off[freq-1][0]=neu[pcv.sat?0:1]; /* x or e */
-            pcv.off[freq-1][1]=neu[pcv.sat?1:0]; /* y or n */
-            pcv.off[freq-1][2]=neu[2];           /* z or u */
+            pcv.off_sys[PCVI(sysi,idx)][0]=neu[pcv.sat?0:1]; /* x or e */
+            pcv.off_sys[PCVI(sysi,idx)][1]=neu[pcv.sat?1:0]; /* y or n */
+            pcv.off_sys[PCVI(sysi,idx)][2]=neu[2];           /* z or u */
+            pcv.has_sys[sysi]|=1<<idx;
+            if (legacy) matcpy(pcv.off[idx],pcv.off_sys[PCVI(sysi,idx)],3,1);
         }
         else if (strstr(buff,"NOAZI")) {
-            if (freq<1||NFREQ<freq) continue;
-            if ((i=decodef(buff+8,19,pcv.var[freq-1]))<=0) continue;
-            for (;i<19;i++) pcv.var[freq-1][i]=pcv.var[freq-1][i-1];
+            if (sysi<0||idx<0) continue;
+            if ((i=decodef(buff+8,19,pcv.var_sys[PCVI(sysi,idx)]))<=0) continue;
+            for (;i<19;i++) {
+                pcv.var_sys[PCVI(sysi,idx)][i]=pcv.var_sys[PCVI(sysi,idx)][i-1];
+            }
+            pcv.has_sys[sysi]|=1<<idx;
+            if (legacy) matcpy(pcv.var[idx],pcv.var_sys[PCVI(sysi,idx)],19,1);
         }
     }
     fclose(fp);
-    
+
     return 1;
 }
 /* read antenna parameters ------------------------------------------------------
@@ -2421,8 +2538,8 @@ extern int readpcv(const char *file, pcvs_t *pcvs)
 {
     pcv_t *pcv;
     char *ext;
-    int i,j,stat;
-    
+    int i,j,k,stat;
+
     trace(3,"readpcv: file=%s\n",file);
     
     if (!(ext=strrchr(file,'.'))) ext="";
@@ -2444,6 +2561,20 @@ extern int readpcv(const char *file, pcvs_t *pcvs)
             if (norm(pcv->off[j],3)>0.0) continue;
             matcpy(pcv->off[j],pcv->off[1], 3,1);
             matcpy(pcv->var[j],pcv->var[1],19,1);
+        }
+        /* resolve the per-system arrays: any (system,slot) without its own ANTEX
+           data falls back to the legacy value - i.e. exactly what that system
+           received before per-system PCVs existed (GPS for a receiver antenna,
+           including the L2 fill above). Must run after that fill so the fallback
+           inherits it. The fallback is per (system,slot), not per system: an
+           antenna can define E01 but not E07, and a per-system flag would leave
+           its slot 1 at zero, removing a correction that is applied today.
+           readngspcv() never sets has_sys, so NGS files resolve entirely to the
+           legacy arrays and behave as before. */
+        for (k=0;k<NSYSPCV;k++) for (j=0;j<NFREQ;j++) {
+            if (pcv->has_sys[k]&(1<<j)) continue;
+            matcpy(pcv->off_sys[PCVI(k,j)],pcv->off[j], 3,1);
+            matcpy(pcv->var_sys[PCVI(k,j)],pcv->var[j],19,1);
         }
     }
     return stat;
@@ -3847,10 +3978,50 @@ extern void antmodel(const pcv_t *pcv, const double *del, const double *azel,
     
     for (i=0;i<NFREQ;i++) {
         for (j=0;j<3;j++) off[j]=pcv->off[i][j]+del[j];
-        
+
         dant[i]=-dot(off,e,3)+(opt?interpvar(90.0-azel[1]*R2D,pcv->var[i]):0.0);
     }
     trace(5,"antmodel: dant=%6.3f %6.3f\n",dant[0],dant[1]);
+}
+/* receiver antenna model for a satellite system --------------------------------
+* compute antenna offset using the calibration of the observed constellation
+* args   : pcv_t *pcv       I   antenna phase center parameters
+*          int     sys      I   satellite system (SYS_???)
+*          double *del      I   antenna delta {e,n,u} (m)
+*          double *azel     I   azimuth/elevation for receiver {az,el} (rad)
+*          int     opt      I   option (0:only offset,1:offset+pcv)
+*          double *dant     O   range offsets for each frequency (m)
+* return : none
+* notes  : falls back to antmodel() when the antenna carries no per-system data
+*          for sys - which covers a hand-built pcv_t (e.g. a zero-initialised
+*          one from Python), an NGS pcv file, and an unknown system. Note that
+*          readpcv() already resolves missing (system,slot) pairs to the legacy
+*          arrays, so for an ANTEX-loaded antenna this is equivalent either way.
+*-----------------------------------------------------------------------------*/
+extern void antmodel_sys(const pcv_t *pcv, int sys, const double *del,
+                         const double *azel, int opt, double *dant)
+{
+    double e[3],off[3],cosel=cos(azel[1]);
+    int i,j,s=sys2pcvidx(sys);
+
+    if (s<0||!pcv->has_sys[s]) {
+        antmodel(pcv,del,azel,opt,dant);
+        return;
+    }
+    trace(4,"antmodel_sys: sys=%d azel=%6.1f %4.1f opt=%d\n",sys,azel[0]*R2D,
+          azel[1]*R2D,opt);
+
+    e[0]=sin(azel[0])*cosel;
+    e[1]=cos(azel[0])*cosel;
+    e[2]=sin(azel[1]);
+
+    for (i=0;i<NFREQ;i++) {
+        for (j=0;j<3;j++) off[j]=pcv->off_sys[PCVI(s,i)][j]+del[j];
+
+        dant[i]=-dot(off,e,3)+
+                (opt?interpvar(90.0-azel[1]*R2D,pcv->var_sys[PCVI(s,i)]):0.0);
+    }
+    trace(5,"antmodel_sys: dant=%6.3f %6.3f\n",dant[0],dant[1]);
 }
 /* satellite antenna model ------------------------------------------------------
 * compute satellite antenna phase center parameters

@@ -88,7 +88,12 @@ static int readsp3h(FILE *fp, gtime_t *time, char *type, int *sats,
         }
         else if (!strncmp(buff,"+ ",2)) { /* satellite id */
             if (ns==0) {
-                ns=(int)str2num(buff,4,2);
+                /* number of satellites: SP3-a/b/c put a 2-digit count in
+                   columns 5-6, SP3-d widens it to columns 4-6 for >=100
+                   satellites. Reading only (4,2) truncates 117 -> 17, which
+                   silently drops every non-GPS satellite of a modern MGEX
+                   product. (3,3) covers both: str2num skips leading blanks. */
+                ns=(int)str2num(buff,3,3);
             }
             for (j=0;j<17&&k<ns;j++) {
                 sys=code2sys(buff[9+3*j]);
@@ -627,6 +632,10 @@ extern void satantoff(gtime_t time, const double *rs, int sat, const nav_t *nav,
     C2=-SQR(freq[1])/(SQR(freq[0])-SQR(freq[1]));
     
     /* iono-free LC */
+    /* pcv->off[0]/[1] are this satellite's own constellation: readantex() slots a
+       satellite antenna with antexband2idx(its own system), so slot 0/1 hold the
+       carriers selected just above (E1/E5b for Galileo, B1I/B2I for BeiDou). No
+       per-system lookup is needed here - do not "fix" this to use off_sys. */
     for (i=0;i<3;i++) {
         dant1=pcv->off[0][0]*ex[i]+pcv->off[0][1]*ey[i]+pcv->off[0][2]*ez[i];
         dant2=pcv->off[1][0]*ex[i]+pcv->off[1][1]*ey[i]+pcv->off[1][2]*ez[i];

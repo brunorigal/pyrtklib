@@ -322,6 +322,13 @@ extern void antmodel(const pcv_t *pcv,Arr1D<double> Sdel,Arr1D<double> Sazel, in
     antmodel(pcv, del, azel, opt, dant);
 
 }
+extern void antmodel_sys(const pcv_t *pcv, int sys,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant){
+    const double *del = Sdel.src;
+    const double *azel = Sazel.src;
+    double *dant = Sdant.src;
+    antmodel_sys(pcv, sys, del, azel, opt, dant);
+
+}
 extern void antmodel_s(const pcv_t *pcv, double nadir,Arr1D<double> Sdant){
     double *dant = Sdant.src;
     antmodel_s(pcv, nadir, dant);
@@ -1281,7 +1288,7 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.attr("TSYS_QZS")=4;
     m.attr("TSYS_CMP")=5;
     m.attr("TSYS_IRN")=6;
-    m.attr("NFREQ")=3;
+    m.attr("NFREQ")=NFREQ;
     m.attr("NFREQGLO")=2;
     m.attr("NEXOBS")=0;
     m.attr("SNR_UNIT")=0.001;
@@ -1316,6 +1323,7 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.attr("NSATLEO")=0;
     m.attr("NSYSLEO")=0;
     m.attr("NSYS")=(NSYSGPS+NSYSGLO+NSYSGAL+NSYSQZS+NSYSCMP+NSYSIRN+NSYSLEO);
+    m.attr("NSYSPCV")=NSYSPCV;
     m.attr("MINPRNSBS")=120;
     m.attr("MAXPRNSBS")=158;
     m.attr("NSATSBS")=(MAXPRNSBS-MINPRNSBS+1);
@@ -1757,6 +1765,9 @@ PYBIND11_MODULE(pyrtklib, m) {
         .def_property_readonly("code",[](pcv_t& o) {Arr1D<char>* tmp = new Arr1D<char>(o.code,MAXANT);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("off",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.off,NFREQ, 3);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("var",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.var,NFREQ,19);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("has_sys",[](pcv_t& o) {Arr1D<int>* tmp = new Arr1D<int>(o.has_sys,NSYSPCV);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("off_sys",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.off_sys,NSYSPCV*NFREQ, 3);return tmp;},py::return_value_policy::reference)
+        .def_property_readonly("var_sys",[](pcv_t& o) {Arr2D<double>* tmp = new Arr2D<double>(o.var_sys,NSYSPCV*NFREQ,19);return tmp;},py::return_value_policy::reference)
         .def_property_readonly("ptr",[](pcv_t& o){return &o;},py::return_value_policy::reference);
 
     py::class_<pcvs_t>(m,"pcvs_t").def(py::init())
@@ -2180,6 +2191,9 @@ PYBIND11_MODULE(pyrtklib, m) {
         .def_property_readonly("ptr",[](snrmask_t& o){return &o;},py::return_value_policy::reference);
 
     py::class_<prcopt_t>(m,"prcopt_t").def(py::init())
+        .def(py::init<const prcopt_t&>())
+        .def("__copy__",[](const prcopt_t& o){return new prcopt_t(o);})
+        .def("__deepcopy__",[](const prcopt_t& o, py::dict){return new prcopt_t(o);},py::arg("memo"))
         .def_readwrite("mode",&prcopt_t::mode)
         .def_readwrite("soltype",&prcopt_t::soltype)
         .def_readwrite("nf",&prcopt_t::nf)
@@ -2577,6 +2591,9 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.def("ionocorr",static_cast<int(*)(gtime_t time, const nav_t *nav, int sat,Arr1D<double> Spos,Arr1D<double> Sazel, int ionoopt,Arr1D<double> Sion,Arr1D<double> Svar)>(&ionocorr),"rtklib ionocorr");
     m.def("tropcorr",static_cast<int(*)(gtime_t time, const nav_t *nav,Arr1D<double> Spos,Arr1D<double> Sazel, int tropopt,Arr1D<double> Strp,Arr1D<double> Svar)>(&tropcorr),"rtklib tropcorr");
     m.def("antmodel",static_cast<void(*)(const pcv_t *pcv,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant)>(&antmodel),"rtklib antmodel");
+    m.def("antmodel_sys",static_cast<void(*)(const pcv_t *pcv, int sys,Arr1D<double> Sdel,Arr1D<double> Sazel, int opt,Arr1D<double> Sdant)>(&antmodel_sys),"rtklib antmodel_sys");
+    m.def("sys2pcvidx",&sys2pcvidx,"rtklib sys2pcvidx");
+    m.def("antexband2idx",&antexband2idx,"rtklib antexband2idx");
     m.def("antmodel_s",static_cast<void(*)(const pcv_t *pcv, double nadir,Arr1D<double> Sdant)>(&antmodel_s),"rtklib antmodel_s");
     m.def("sunmoonpos",static_cast<void(*)(gtime_t tutc,Arr1D<double> Serpv,Arr1D<double> Srsun,Arr1D<double> Srmoon,Arr1D<double> Sgmst)>(&sunmoonpos),"rtklib sunmoonpos");
     m.def("tidedisp",static_cast<void(*)(gtime_t tutc,Arr1D<double> Srr, int opt, const erp_t *erp,Arr1D<double> Sodisp,Arr1D<double> Sdr)>(&tidedisp),"rtklib tidedisp");
@@ -2879,5 +2896,327 @@ PYBIND11_MODULE(pyrtklib, m) {
     m.def("gis_free",&gis_free,"rtklib gis_free");
     m.def("settspan",&settspan,"rtklib settspan");
     m.def("settime",&settime,"rtklib settime");
+
+    /* ---- relpos step-by-step context and API ---- */
+
+    /* helper: expose IB() index macro to Python */
+    m.def("IB_index", [](int sat, int freq, const prcopt_t &opt) -> int {
+        int nf = opt.ionoopt == IONOOPT_IFLC ? 1 : opt.nf;
+        int np = opt.dynamics == 0 ? 3 : 9;
+        int ni = opt.ionoopt != IONOOPT_EST ? 0 : MAXSAT;
+        int nt = opt.tropopt < TROPOPT_EST ? 0 : (opt.tropopt < TROPOPT_ESTG ? 2 : 6);
+        int nl = opt.glomodear != 2 ? 0 : NFREQGLO;
+        int na = np + ni + nt + nl;
+        return na + MAXSAT * freq + (sat - 1);
+    }, "Compute state-vector index for phase bias: IB(sat,freq,opt)");
+
+    m.def("NR_index", [](const prcopt_t &opt) -> int {
+        int nf = opt.ionoopt == IONOOPT_IFLC ? 1 : opt.nf;
+        int np = opt.dynamics == 0 ? 3 : 9;
+        int ni = opt.ionoopt != IONOOPT_EST ? 0 : MAXSAT;
+        int nt = opt.tropopt < TROPOPT_EST ? 0 : (opt.tropopt < TROPOPT_ESTG ? 2 : 6);
+        int nl = opt.glomodear != 2 ? 0 : NFREQGLO;
+        return np + ni + nt + nl;
+    }, "Number of real (non-ambiguity) parameters: NR(opt)");
+
+    py::class_<relpos_ctx_t>(m, "relpos_ctx_t")
+        .def(py::init())
+        .def_readonly("nu", &relpos_ctx_t::nu)
+        .def_readonly("nr", &relpos_ctx_t::nr)
+        .def_readonly("ns", &relpos_ctx_t::ns)
+        .def_readonly("nf", &relpos_ctx_t::nf)
+        .def_readonly("ny", &relpos_ctx_t::ny)
+        .def_readonly("nv", &relpos_ctx_t::nv)
+        .def_readonly("niter", &relpos_ctx_t::niter)
+        .def_readonly("stat", &relpos_ctx_t::stat)
+        .def_readonly("dt", &relpos_ctx_t::dt)
+        /* arrays exposed as Arr1D for Python access */
+        .def_property_readonly("xp", [](relpos_ctx_t &c) {
+            return c.xp ? new Arr1D<double>(c.xp, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("Pp", [](relpos_ctx_t &c) {
+            return c.Pp ? new Arr1D<double>(c.Pp, c.rtk->nx * c.rtk->nx) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("xa", [](relpos_ctx_t &c) {
+            return c.xa ? new Arr1D<double>(c.xa, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("bias", [](relpos_ctx_t &c) {
+            return c.bias ? new Arr1D<double>(c.bias, c.rtk->nx) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("v", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.v ? new Arr1D<double>(c.v, ny) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("H", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.H ? new Arr1D<double>(c.H, c.rtk->nx * ny) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("R", [](relpos_ctx_t &c) {
+            int ny = c.ny > 0 ? c.ny : 1;
+            return c.R ? new Arr1D<double>(c.R, ny * ny) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("y", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.y ? new Arr1D<double>(c.y, c.nf * 2 * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("e", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.e ? new Arr1D<double>(c.e, 3 * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("azel", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.azel ? new Arr1D<double>(c.azel, 2 * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("freq", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.freq ? new Arr1D<double>(c.freq, c.nf * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("rs", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.rs ? new Arr1D<double>(c.rs, 6 * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("dts", [](relpos_ctx_t &c) {
+            int n = c.nu + c.nr;
+            return c.dts ? new Arr1D<double>(c.dts, 2 * n) : nullptr;
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("sat", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.sat, MAXSAT);
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("iu", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.iu, MAXSAT);
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("ir", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.ir, MAXSAT);
+        }, py::return_value_policy::take_ownership)
+        .def_property_readonly("vflg", [](relpos_ctx_t &c) {
+            return new Arr1D<int>(c.vflg, MAXOBS * NFREQ * 2 + 1);
+        }, py::return_value_policy::take_ownership);
+
+    m.def("rtkpos_pre_relpos", [](rtk_t &rtk, obsd_t *obs, int n,
+                                   const nav_t &nav) {
+        return rtkpos_pre_relpos(&rtk, obs, n, &nav);
+    }, "Pre-relpos processing: base setup, SPP, time sync");
+
+    m.def("relpos_init", [](relpos_ctx_t &ctx, rtk_t &rtk, obsd_t *obs, int n,
+                            const nav_t &nav) {
+        return relpos_init(&ctx, &rtk, obs, n, &nav);
+    }, "Initialize relpos context for one epoch");
+
+    m.def("relpos_satpos", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_satpos(&ctx, obs);
+    }, "Step 1: compute satellite positions/clocks");
+
+    m.def("relpos_zdres_base", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_zdres_base(&ctx, obs);
+    }, "Step 2: undifferenced residuals for base");
+
+    m.def("relpos_selsat", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_selsat(&ctx, obs);
+    }, "Step 3: select common satellites");
+
+    m.def("relpos_udstate", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        relpos_udstate(&ctx, obs);
+    }, "Step 4: temporal update of states");
+
+    m.def("relpos_float_filter", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_float_filter(&ctx, obs);
+    }, "Step 5: Kalman filter float solution");
+
+    m.def("relpos_ambiguity_resolution", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        return relpos_ambiguity_resolution(&ctx, obs);
+    }, "Step 6: LAMBDA ambiguity resolution");
+
+    m.def("relpos_save_solution", [](relpos_ctx_t &ctx, obsd_t *obs) {
+        relpos_save_solution(&ctx, obs);
+    }, "Step 7: save solution and update flags");
+
+    m.def("relpos_free", [](relpos_ctx_t &ctx) {
+        relpos_free(&ctx);
+    }, "Free relpos context arrays");
+
+    /* extract diagonal of a square matrix stored as flat Arr1D */
+    m.def("matrix_diagonal", [](Arr1D<double> &mat, int n) {
+        auto result = py::array_t<double>(n);
+        double *dst = static_cast<double*>(result.mutable_data());
+        double *src = mat.src;
+        for (int i = 0; i < n; i++) {
+            dst[i] = src[i + i * n];
+        }
+        return result;
+    }, py::arg("mat"), py::arg("n"),
+       "Extract diagonal of n×n matrix stored as flat array");
+
+    /* bulk per-satellite extraction: returns dict of numpy arrays */
+    m.def("relpos_extract_sat_data",
+        [](relpos_ctx_t &ctx,
+           py::array_t<double> rover_ecef,
+           py::array_t<double> base_ecef,
+           int flags) -> py::dict
+    {
+        int ns = ctx.ns;
+        int nf = ctx.nf;
+        if (ns <= 0) return py::dict();
+
+        const double *rov = static_cast<const double*>(rover_ecef.data());
+        const double *bas = static_cast<const double*>(base_ecef.data());
+
+        /* allocate output arrays via numpy to guarantee correct strides */
+        py::object np_mod = py::module_::import("numpy");
+        py::object np_empty = np_mod.attr("empty");
+        py::object f64_dtype = np_mod.attr("float64");
+        py::object i32_dtype = np_mod.attr("int32");
+        auto mk1d = [&np_empty, &f64_dtype](int n) {
+            return np_empty(n, f64_dtype).cast<py::array_t<double>>();
+        };
+        auto mk1di = [&np_empty, &i32_dtype](int n) {
+            return np_empty(n, i32_dtype).cast<py::array_t<int>>();
+        };
+        auto el   = mk1d(ns);
+        auto az   = mk1d(ns);
+        auto spos = mk1d(ns * 3);
+        auto svel = mk1d(ns * 3);
+        auto sclk = mk1d(ns);
+        auto scdr = mk1d(ns);
+        auto los  = mk1d(ns * 3);
+        auto gr   = mk1d(ns);
+        auto sag  = mk1d(ns);
+        auto trp  = mk1d(ns);
+        auto ion  = mk1d(ns);
+        auto phw  = mk1d(ns);
+        auto bgr  = mk1d(ns);
+        auto bel  = mk1d(ns);
+        auto baz  = mk1d(ns);
+        auto famb = mk1d(ns * nf);
+        auto wl   = mk1d(ns * nf);
+        auto resc = mk1d(ns * nf);
+        auto resp = mk1d(ns * nf);
+        auto fix  = mk1d(ns * nf);
+        auto lock = mk1d(ns * nf);
+        auto slip = mk1d(ns * nf);
+        auto snr  = mk1d(ns * nf);
+        auto rdant = mk1d(ns * nf);
+        auto bdant = mk1d(ns * nf);
+        auto btrp  = mk1d(ns);
+        auto bion  = mk1d(ns);
+
+        relpos_extract_sat_data(&ctx, rov, bas, flags,
+            static_cast<double*>(el.mutable_data()),
+            static_cast<double*>(az.mutable_data()),
+            static_cast<double*>(spos.mutable_data()),
+            static_cast<double*>(svel.mutable_data()),
+            static_cast<double*>(sclk.mutable_data()),
+            static_cast<double*>(scdr.mutable_data()),
+            static_cast<double*>(los.mutable_data()),
+            static_cast<double*>(gr.mutable_data()),
+            static_cast<double*>(sag.mutable_data()),
+            static_cast<double*>(trp.mutable_data()),
+            static_cast<double*>(ion.mutable_data()),
+            static_cast<double*>(phw.mutable_data()),
+            static_cast<double*>(bgr.mutable_data()),
+            static_cast<double*>(bel.mutable_data()),
+            static_cast<double*>(baz.mutable_data()),
+            static_cast<double*>(famb.mutable_data()),
+            static_cast<double*>(wl.mutable_data()),
+            static_cast<double*>(resc.mutable_data()),
+            static_cast<double*>(resp.mutable_data()),
+            static_cast<double*>(fix.mutable_data()),
+            static_cast<double*>(lock.mutable_data()),
+            static_cast<double*>(slip.mutable_data()),
+            static_cast<double*>(snr.mutable_data()),
+            static_cast<double*>(rdant.mutable_data()),
+            static_cast<double*>(bdant.mutable_data()),
+            static_cast<double*>(btrp.mutable_data()),
+            static_cast<double*>(bion.mutable_data()));
+
+        /* also extract sat_no and sat_id strings for Python indexing */
+        py::list sat_ids(ns);
+        py::array_t<int> sat_nos = mk1di(ns);
+        int *sat_nos_ptr = static_cast<int*>(sat_nos.mutable_data());
+        for (int j = 0; j < ns; j++) {
+            char id_buf[8] = {0};
+            sat_nos_ptr[j] = ctx.sat[j];
+            satno2id(ctx.sat[j], id_buf);
+            sat_ids[j] = py::str(id_buf);
+        }
+
+        /* reshape 2D arrays using numpy reshape */
+        py::object np_reshape = py::module_::import("numpy").attr("reshape");
+        auto spos2 = np_reshape(spos, py::make_tuple(ns, 3));
+        auto svel2 = np_reshape(svel, py::make_tuple(ns, 3));
+        auto los2  = np_reshape(los,  py::make_tuple(ns, 3));
+        auto famb2 = np_reshape(famb, py::make_tuple(ns, nf));
+        auto wl2   = np_reshape(wl,   py::make_tuple(ns, nf));
+        auto resc2 = np_reshape(resc, py::make_tuple(ns, nf));
+        auto resp2 = np_reshape(resp, py::make_tuple(ns, nf));
+        auto fix2  = np_reshape(fix,  py::make_tuple(ns, nf));
+        auto lock2 = np_reshape(lock, py::make_tuple(ns, nf));
+        auto slip2 = np_reshape(slip, py::make_tuple(ns, nf));
+        auto snr2  = np_reshape(snr,  py::make_tuple(ns, nf));
+        auto rdant2 = np_reshape(rdant, py::make_tuple(ns, nf));
+        auto bdant2 = np_reshape(bdant, py::make_tuple(ns, nf));
+
+        py::dict result;
+        result["sat_ids"]       = sat_ids;
+        result["sat_nos"]       = sat_nos;
+        result["el_deg"]        = el;
+        result["az_deg"]        = az;
+        result["sat_pos"]       = spos2;
+        result["sat_vel"]       = svel2;
+        result["sat_clk"]       = sclk;
+        result["sat_clk_drift"] = scdr;
+        result["los"]           = los2;
+        result["geom_range"]    = gr;
+        result["sagnac"]        = sag;
+        result["tropo"]         = trp;
+        result["iono"]          = ion;
+        result["phw"]           = phw;
+        result["base_geom_range"]= bgr;
+        result["base_el_deg"]   = bel;
+        result["base_az_deg"]   = baz;
+        result["float_amb"]     = famb2;
+        result["wl"]            = wl2;
+        result["resc"]          = resc2;
+        result["resp"]          = resp2;
+        result["fix"]           = fix2;
+        result["lock"]          = lock2;
+        result["slip"]          = slip2;
+        result["snr"]           = snr2;
+        result["rover_dant"]    = rdant2;
+        result["base_dant"]     = bdant2;
+        result["base_tropo"]    = btrp;
+        result["base_iono"]     = bion;
+        return result;
+    }, py::arg("ctx"), py::arg("rover_ecef"), py::arg("base_ecef"),
+       py::arg("flags") = 0xF,
+       "Bulk extract per-satellite data into numpy arrays");
+
+    /* bulk extraction of fixed ambiguities after AR */
+    m.def("relpos_extract_fixed_amb",
+        [](relpos_ctx_t &ctx) -> py::dict
+    {
+        int ns = ctx.ns;
+        int nf = ctx.nf;
+        if (ns <= 0 || !ctx.xa) return py::dict();
+
+        py::object np_mod2 = py::module_::import("numpy");
+        py::object np_empty2 = np_mod2.attr("empty");
+        py::object f64_dtype2 = np_mod2.attr("float64");
+        auto mk1d2 = [&np_empty2, &f64_dtype2](int n) {
+            return np_empty2(n, f64_dtype2).cast<py::array_t<double>>();
+        };
+        auto famb = mk1d2(ns * nf);
+        auto fix  = mk1d2(ns * nf);
+
+        relpos_extract_fixed_amb(&ctx,
+            static_cast<double*>(famb.mutable_data()),
+            static_cast<double*>(fix.mutable_data()));
+
+        py::object np_reshape = py::module_::import("numpy").attr("reshape");
+
+        py::dict result;
+        result["fixed_amb"]  = np_reshape(famb, py::make_tuple(ns, nf));
+        result["fix_flags"]  = np_reshape(fix,  py::make_tuple(ns, nf));
+        return result;
+    }, "Bulk extract fixed ambiguities after LAMBDA");
 
 }

@@ -15,7 +15,14 @@ include_directories(${PYBIND11_INCLUDE_DIRS})
 
 
 
-ADD_DEFINITIONS(-DENACMP -DENAGAL -DENAGLO -DENAQZS -DENAIRN -DTRACE -DDLL -DEBUG)
+# Number of carrier frequency slots per satellite. rtklib.h guards NFREQ with
+# #ifndef, so this override needs no header edit. 5 is the useful maximum:
+# code2idx() never returns an index above 4 (Galileo E1/E5b/E5a/E6/E5ab and
+# BeiDou B1/B2/B2a/B3/B2ab), so slots 5..MAXFREQ-1 are unreachable.
+# Must reach every translation unit - ssat_t/obsd_t are sized by it, and a
+# partial rebuild fails as silent memory corruption, not as a link error.
+set(NFREQ 5 CACHE STRING "Number of RTKLIB carrier frequency slots (max useful: 5)")
+ADD_DEFINITIONS(-DENACMP -DENAGAL -DENAGLO -DENAQZS -DENAIRN -DTRACE -DDLL -DEBUG -DNFREQ=${NFREQ})
 if(DARWIN)
 ADD_DEFINITIONS(-DDARWIN)
 endif()

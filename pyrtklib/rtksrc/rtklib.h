@@ -214,6 +214,13 @@ extern "C" {
 #endif
 #define NSYS        (NSYSGPS+NSYSGLO+NSYSGAL+NSYSQZS+NSYSCMP+NSYSIRN+NSYSLEO) /* number of systems */
 
+#define NSYSPCV     7                   /* number of systems in pcv_t per-system arrays */
+                                        /* GPS,GLO,GAL,QZS,SBS,CMP,IRN - fixed width, deliberately
+                                           NOT NSYS: NSYS expands from the ENA* flags (so it shrinks
+                                           if one is dropped, silently renumbering every entry) and
+                                           it never counts SBAS. See sys2pcvidx() in rtkcmn.c. */
+#define PCVI(s,f)   ((s)*NFREQ+(f))     /* index into pcv_t off_sys/var_sys */
+
 #define MINPRNSBS   120                 /* min satellite PRN number of SBAS */
 #define MAXPRNSBS   158                 /* max satellite PRN number of SBAS */
 #define NSATSBS     (MAXPRNSBS-MINPRNSBS+1) /* number of SBAS satellites */
@@ -570,6 +577,15 @@ typedef struct {        /* antenna parameter type */
     double off[NFREQ][ 3]; /* phase center offset e/n/u or x/y/z (m) */
     double var[NFREQ][19]; /* phase center variation (m) */
                         /* el=90,85,...,0 or nadir=0,1,2,3,... (deg) */
+                        /* receiver antenna: GPS values (unchanged legacy layout);
+                           satellite antenna: that satellite's own system */
+    int    has_sys[NSYSPCV];            /* bit f set: slot f read from ANTEX for this system */
+    double off_sys[NSYSPCV*NFREQ][ 3];  /* per-system phase center offset, index PCVI(s,f) */
+    double var_sys[NSYSPCV*NFREQ][19];  /* per-system phase center variation, index PCVI(s,f) */
+                        /* Flattened to 2-D on purpose: gen_rtk.py only emits 1-D and 2-D struct
+                           members, and would silently mis-bind a 3-D array as Arr2D of its first
+                           two dimensions. Slots without their own ANTEX data are resolved to the
+                           legacy off/var by readpcv(), reproducing pre-per-system behaviour. */
 } pcv_t;
 
 typedef struct {        /* antenna parameters type */
@@ -1453,7 +1469,11 @@ EXPORT pcv_t *searchpcv(int sat, const char *type, gtime_t time,
                         const pcvs_t *pcvs);
 EXPORT void antmodel(const pcv_t *pcv, const double *del, const double *azel,
                      int opt, double *dant);
+EXPORT void antmodel_sys(const pcv_t *pcv, int sys, const double *del,
+                         const double *azel, int opt, double *dant);
 EXPORT void antmodel_s(const pcv_t *pcv, double nadir, double *dant);
+EXPORT int  sys2pcvidx(int sys);
+EXPORT int  antexband2idx(int sys, int band);
 
 /* earth tide models ---------------------------------------------------------*/
 EXPORT void sunmoonpos(gtime_t tutc, const double *erpv, double *rsun,
@@ -1714,6 +1734,67 @@ EXPORT int  rtkpos (rtk_t *rtk, const obsd_t *obs, int nobs, const nav_t *nav);
 EXPORT int  rtkopenstat(const char *file, int level);
 EXPORT void rtkclosestat(void);
 EXPORT int  rtkoutstat(rtk_t *rtk, char *buff);
+
+/* internal relpos step functions (exposed for pyrtklib) ---------------------*/
+int selsat(const obsd_t *obs, double *azel, int nu, int nr,
+           const prcopt_t *opt, int *sat, int *iu, int *ir);
+void udstate(rtk_t *rtk, const obsd_t *obs, const int *sat,
+             const int *iu, const int *ir, int ns, const nav_t *nav);
+int zdres(int base, const obsd_t *obs, int n, const double *rs,
+          const double *dts, const double *var, const int *svh,
+          const nav_t *nav, const double *rr, const prcopt_t *opt,
+          int index, double *y, double *e, double *azel, double *freq);
+int ddres(rtk_t *rtk, const nav_t *nav, double dt, const double *x,
+          const double *P, const int *sat, double *y, double *e,
+          double *azel, double *freq, const int *iu, const int *ir,
+          int ns, double *v, double *H, double *R, int *vflg);
+int ddidx(rtk_t *rtk, int *ix);
+void restamb(rtk_t *rtk, const double *bias, int nb, double *xa);
+void holdamb(rtk_t *rtk, const double *xa);
+int resamb_LAMBDA(rtk_t *rtk, double *bias, double *xa);
+int valpos(rtk_t *rtk, const double *v, const double *R, const int *vflg,
+           int nv, double thres);
+
+/* relpos step-by-step context -----------------------------------------------*/
+typedef struct {
+    rtk_t *rtk;
+    const nav_t *nav;
+    int nu, nr, ns, nf, ny, nv, niter, stat;
+    double dt;
+    double *rs, *dts, *var, *y, *e, *azel, *freq;
+    double *v, *H, *R, *xp, *Pp, *xa, *bias;
+    int sat[MAXSAT], iu[MAXSAT], ir[MAXSAT];
+    int vflg[MAXOBS*NFREQ*2+1];
+    int svh[MAXOBS*2];
+} relpos_ctx_t;
+
+/* relpos step-by-step API */
+int rtkpos_pre_relpos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav);
+int relpos_init(relpos_ctx_t *ctx, rtk_t *rtk, const obsd_t *obs, int n,
+                const nav_t *nav);
+int relpos_satpos(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_zdres_base(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_selsat(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_udstate(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_float_filter(relpos_ctx_t *ctx, const obsd_t *obs);
+int relpos_ambiguity_resolution(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_save_solution(relpos_ctx_t *ctx, const obsd_t *obs);
+void relpos_free(relpos_ctx_t *ctx);
+void relpos_extract_sat_data(const relpos_ctx_t *ctx,
+    const double *rover_ecef, const double *base_ecef, int flags,
+    double *out_el_deg, double *out_az_deg,
+    double *out_sat_pos, double *out_sat_vel,
+    double *out_sat_clk, double *out_sat_clk_drift,
+    double *out_los, double *out_geom_range, double *out_sagnac,
+    double *out_tropo, double *out_iono, double *out_phw,
+    double *out_base_geom_range, double *out_base_el_deg, double *out_base_az_deg,
+    double *out_float_amb, double *out_wl,
+    double *out_resc, double *out_resp, double *out_fix, double *out_lock,
+    double *out_slip, double *out_snr,
+    double *out_rover_dant, double *out_base_dant,
+    double *out_base_tropo, double *out_base_iono);
+void relpos_extract_fixed_amb(const relpos_ctx_t *ctx,
+    double *out_fixed_amb, double *out_fix_flags);
 
 /* precise point positioning -------------------------------------------------*/
 EXPORT void pppos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav);
